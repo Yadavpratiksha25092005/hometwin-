@@ -1,0 +1,35 @@
+CREATE TABLE IF NOT EXISTS users (
+  id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS assets (
+  id BIGSERIAL PRIMARY KEY, user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, category TEXT, room TEXT, brand TEXT, model TEXT, serial_no TEXT,
+  purchase_date DATE, price NUMERIC, notes TEXT, photo_url TEXT, created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS warranties (
+  id BIGSERIAL PRIMARY KEY, user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+  asset_id BIGINT REFERENCES assets(id) ON DELETE CASCADE, provider TEXT,
+  start_date DATE, expiry_date DATE NOT NULL, notes TEXT, created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS repairs (
+  id BIGSERIAL PRIMARY KEY, user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+  asset_id BIGINT REFERENCES assets(id) ON DELETE SET NULL, title TEXT NOT NULL,
+  description TEXT, cost NUMERIC, repair_date DATE, service_provider TEXT, created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS documents (
+  id BIGSERIAL PRIMARY KEY, user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+  asset_id BIGINT REFERENCES assets(id) ON DELETE SET NULL, title TEXT NOT NULL,
+  category TEXT, file_url TEXT, created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS scans (
+  id BIGSERIAL PRIMARY KEY, user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, model_url TEXT, notes TEXT, created_at TIMESTAMPTZ DEFAULT now());
+ALTER TABLE scans ADD COLUMN IF NOT EXISTS meta JSONB;
+ALTER TABLE scans ADD COLUMN IF NOT EXISTS source TEXT;
+CREATE TABLE IF NOT EXISTS device_tokens (
+  user_id BIGINT REFERENCES users(id) ON DELETE CASCADE, token TEXT, PRIMARY KEY (user_id, token));
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
+CREATE TABLE IF NOT EXISTS tasks (
+  id BIGSERIAL PRIMARY KEY, user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+  asset_id BIGINT REFERENCES assets(id) ON DELETE CASCADE, title TEXT NOT NULL,
+  start_date DATE, due_date DATE, notes TEXT, created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS furniture_jobs (
+  id BIGSERIAL PRIMARY KEY, user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+  task_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'processing', progress INT NOT NULL DEFAULT 0,
+  model_url TEXT, error TEXT, created_at TIMESTAMPTZ DEFAULT now());
