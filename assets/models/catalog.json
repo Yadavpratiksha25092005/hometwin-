@@ -1,0 +1,164 @@
+[
+  {
+    "name": "Living Room",
+    "file": "assets/models/living_room.glb",
+    "meta": {
+      "version": 1,
+      "unit": "m",
+      "demo": true,
+      "corners": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          5.0,
+          0.0
+        ],
+        [
+          5.0,
+          4.0
+        ],
+        [
+          0.0,
+          4.0
+        ]
+      ],
+      "height": 2.7,
+      "area_m2": 20.0,
+      "perimeter_m": 18.0,
+      "width_m": 5.0,
+      "depth_m": 4.0,
+      "walls": [
+        5.0,
+        4.0,
+        5.0,
+        4.0
+      ]
+    }
+  },
+  {
+    "name": "Bedroom",
+    "file": "assets/models/bedroom.glb",
+    "meta": {
+      "version": 1,
+      "unit": "m",
+      "demo": true,
+      "corners": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          4.0,
+          0.0
+        ],
+        [
+          4.0,
+          3.5
+        ],
+        [
+          0.0,
+          3.5
+        ]
+      ],
+      "height": 2.6,
+      "area_m2": 14.0,
+      "perimeter_m": 15.0,
+      "width_m": 4.0,
+      "depth_m": 3.5,
+      "walls": [
+        4.0,
+        3.5,
+        4.0,
+        3.5
+      ]
+    }
+  },
+  {
+    "name": "Kitchen",
+    "file": "assets/models/kitchen.glb",
+    "meta": {
+      "version": 1,
+      "unit": "m",
+      "demo": true,
+      "corners": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          3.6,
+          0.0
+        ],
+        [
+          3.6,
+          3.0
+        ],
+        [
+          0.0,
+          3.0
+        ]
+      ],
+      "height": 2.6,
+      "area_m2": 10.8,
+      "perimeter_m": 13.2,
+      "width_m": 3.6,
+      "depth_m": 3.0,
+      "walls": [
+        3.6,
+        3.0,
+        3.6,
+        3.0
+      ]
+    }
+  },
+  {
+    "name": "Studio (L-shape)",
+    "file": "assets/models/studio.glb",
+    "meta": {
+      "version": 1,
+      "unit": "m",
+      "demo": true,
+      "corners": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          6.0,
+          0.0
+        ],
+        [
+          6.0,
+          2.0
+        ],
+        [
+          3.5,
+          2.0
+        ],
+        [
+          3.5,
+          4.0
+        ],
+        [
+          0.0,
+          4.0
+        ]
+      ],
+      "height": 2.7,
+      "area_m2": 19.0,
+      "perimeter_m": 20.0,
+      "width_m": 6.0,
+      "depth_m": 4.0,
+      "walls": [
+        6.0,
+        2.0,
+        2.5,
+        2.0,
+        3.5,
+        4.0
+      ]
+    }
+  }
+]
