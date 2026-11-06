@@ -1,0 +1,36 @@
+name: home_digital_twin
+description: Home Digital Twin - Your Home. Digitized. Organized. Protected.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.1
+  shared_preferences: ^2.2.3
+  file_picker: ^13.3.0
+  intl: ^0.20.3
+  share_plus: ^13.3.1
+  path_provider: ^2.1.3
+  model_viewer_plus: ^1.7.1 # .glb 3D viewer (room scan + import)
+  flutter_local_notifications: ^22.3.3 # warranty / maintenance reminders
+  timezone: any
+  pdf: any # home report PDF
+  image_picker: ^1.1.2 # take / pick a photo of the room
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/images/demo/
+    - assets/models/
+    - assets/ar/
+    - assets/furniture/
