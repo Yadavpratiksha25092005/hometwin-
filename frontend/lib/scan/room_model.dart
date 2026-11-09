@@ -120,6 +120,7 @@ void _addAutoFurniture(
   final minZ = zs.reduce(math.min), maxZ = zs.reduce(math.max);
   final w = maxX - minX, d = maxZ - minZ;
   if (w < 2.0 || d < 2.0 || r.area < 5.5) return; // too small/odd-shaped: leave it empty
+  if (r.area < 0.95 * w * d) return; // L-shaped etc.: the furniture would stick out of the room
 
   void bAt(double cx, double baseY, double cz, double hx, double hy, double hz, int mat, {double rotY = 0}) =>
       addBox(cx, baseY + hy, cz, hx, hy, hz, mat, rotY: rotY);
@@ -184,7 +185,7 @@ class _Mat {
   const _Mat(this.name, this.color, {this.metallic = 0.0, this.roughness = 0.9});
 }
 
-/// Builds a binary glTF (.glb) for ONE room: floor + walls (open top) + optional auto-furniture,
+/// Builds a binary glTF (.glb) for ONE room: floor + low dark walls + optional auto-furniture,
 /// double-sided, Y-up, metres.
 Uint8List buildRoomGlb(RoomData r, {String? roomName}) => _buildGlb([MapEntry(r, roomName)]);
 
@@ -233,7 +234,7 @@ Uint8List _buildGlb(List<MapEntry<RoomData, String?>> rooms) {
   // ---- materials: 0=floor 1=walls 2=trim, then furniture materials appended below
   final materials = <_Mat>[
     const _Mat('Floor', [0.50, 0.33, 0.17, 1.0], roughness: 0.75), // warm wood
-    const _Mat('Walls', [0.88, 0.86, 0.80, 1.0], roughness: 0.95), // soft warm white
+    const _Mat('Walls', [0.15, 0.15, 0.17, 1.0], roughness: 0.7), // dark low walls
     const _Mat('Trim', [0.14, 0.14, 0.16, 1.0], roughness: 0.6),
   ];
   // index lists per material (parallel to `materials`)
@@ -290,16 +291,22 @@ Uint8List _buildGlb(List<MapEntry<RoomData, String?>> rooms) {
       idxByMat[0].add(floorBase + t);
     }
 
-    final band = math.min(0.08, r.height * 0.1); // dark strip on top of walls
-    final top = r.height - band;
+    // Low, thick, dark walls (cut-away look) so the inside of the room stays visible.
+    const wallT = 0.12; // thickness (m)
+    final wallH = math.min(0.35, r.height);
+    var sa = 0.0; // sign tells which side of a wall is the inside
     for (var i = 0; i < n; i++) {
       final a = r.corners[i], b = r.corners[(i + 1) % n];
-      var base = verts.length ~/ 3;
-      verts.addAll([a[0], 0, a[1], b[0], 0, b[1], b[0], top, b[1], a[0], top, a[1]]);
-      idxByMat[1].addAll([base, base + 1, base + 2, base, base + 2, base + 3]);
-      base = verts.length ~/ 3;
-      verts.addAll([a[0], top, a[1], b[0], top, b[1], b[0], r.height, b[1], a[0], r.height, a[1]]);
-      idxByMat[2].addAll([base, base + 1, base + 2, base, base + 2, base + 3]);
+      sa += a[0] * b[1] - b[0] * a[1];
+    }
+    for (var i = 0; i < n; i++) {
+      final a = r.corners[i], b = r.corners[(i + 1) % n];
+      final dx = b[0] - a[0], dz = b[1] - a[1];
+      final len = math.sqrt(dx * dx + dz * dz);
+      if (len < 1e-6) continue;
+      final nx = (sa > 0 ? dz : -dz) / len, nz = (sa > 0 ? -dx : dx) / len; // outward normal
+      final wx = (a[0] + b[0]) / 2 + nx * wallT / 2, wz = (a[1] + b[1]) / 2 + nz * wallT / 2;
+      addBox(wx, wallH / 2, wz, len / 2 + wallT / 2, wallH / 2, wallT / 2, 1, rotY: math.atan2(dz, dx));
     }
 
     _addAutoFurniture(r, e.value, addMat, addBox);

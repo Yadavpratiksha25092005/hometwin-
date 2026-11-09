@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'api.dart';
 import 'screens/auth_screen.dart';
 import 'screens/home_shell.dart';
 
-const kBlue = Color(0xFF0B6BE6);
-const kNavy = Color(0xFF0F1F4B);
-const kBg = Color(0xFFF7F9FC);
-const kBorder = Color(0xFFE6ECF5);
+// Premium purple theme: navy text + purple primary + lavender accents on a soft lilac background.
+// (kBlue keeps its old name because the whole app uses it; it is the PRIMARY colour, now purple.)
+const kBlue = Color(0xFF6338D6); // primary
+const kLavender = Color(0xFFA78BFA); // secondary
+const kLilac = Color(0xFFEDE7FF); // light tint (selected tab, chips)
+const kNavy = Color(0xFF172554); // text
+const kBg = Color(0xFFF7F5FF); // background
+const kBorder = Color(0xFFE8E3F8);
 
 void main() => runApp(const HomeTwinApp());
 
@@ -18,14 +23,16 @@ class HomeTwinApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           useMaterial3: true,
-          colorScheme: ColorScheme.fromSeed(seedColor: kBlue, primary: kBlue),
+          colorScheme: ColorScheme.fromSeed(seedColor: kBlue, primary: kBlue, secondary: kLavender),
           scaffoldBackgroundColor: kBg,
-          appBarTheme: const AppBarTheme(
+          // Inter is downloaded the first time (needs internet); offline it falls back to the system font.
+          textTheme: GoogleFonts.interTextTheme(),
+          appBarTheme: AppBarTheme(
             backgroundColor: kBg,
             foregroundColor: kNavy,
             elevation: 0,
             scrolledUnderElevation: 0,
-            titleTextStyle: TextStyle(color: kNavy, fontSize: 22, fontWeight: FontWeight.w700),
+            titleTextStyle: GoogleFonts.inter(color: kNavy, fontSize: 22, fontWeight: FontWeight.w700),
           ),
           cardTheme: CardThemeData(
             color: Colors.white,
@@ -37,7 +44,7 @@ class HomeTwinApp extends StatelessWidget {
           ),
           navigationBarTheme: const NavigationBarThemeData(
             backgroundColor: Colors.white,
-            indicatorColor: Color(0xFFE8F1FF),
+            indicatorColor: kLilac,
             surfaceTintColor: Colors.transparent,
           ),
           floatingActionButtonTheme: const FloatingActionButtonThemeData(

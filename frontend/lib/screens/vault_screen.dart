@@ -85,7 +85,7 @@ class _VaultScreenState extends State<VaultScreen> {
         child: Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF0F1F4B), Color(0xFF0B6BE6)]),
+            gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF172554), Color(0xFF6338D6)]),
             borderRadius: BorderRadius.circular(18),
           ),
           child: Row(children: [

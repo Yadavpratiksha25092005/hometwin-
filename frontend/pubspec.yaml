@@ -19,7 +19,9 @@ dependencies:
   flutter_local_notifications: ^22.3.3 # warranty / maintenance reminders
   timezone: any
   pdf: any # home report PDF
-  image_picker: ^1.1.2 # take / pick a photo of the room
+  google_fonts: ^6.2.1 # Inter font
+  image_picker: ^1.1.2 # room photo + furniture photos (Room Designer)
+  google_mlkit_subject_segmentation: ^0.2.0 # removes the background of furniture photos (Android, on-device)
 
 dev_dependencies:
   flutter_test:
@@ -33,4 +35,3 @@ flutter:
     - assets/images/demo/
     - assets/models/
     - assets/ar/
-    - assets/furniture/

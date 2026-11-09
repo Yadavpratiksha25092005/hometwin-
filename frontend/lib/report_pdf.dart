@@ -8,8 +8,8 @@ import 'api.dart';
 
 /// Builds the "Home Report" PDF from the app data (works in demo and server mode).
 class ReportPdf {
-  static const _blue = PdfColor.fromInt(0xFF0B6BE6);
-  static const _navy = PdfColor.fromInt(0xFF0F1F4B);
+  static const _blue = PdfColor.fromInt(0xFF6338D6);
+  static const _navy = PdfColor.fromInt(0xFF172554);
 
   static String _date(dynamic v) {
     final d = DateTime.tryParse('${v ?? ''}');

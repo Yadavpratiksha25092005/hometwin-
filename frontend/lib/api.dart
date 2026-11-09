@@ -73,6 +73,29 @@ class Api {
     await _start(p, u['name']);
   }
 
+  /// Changes the display name (server mode: saved on the server, demo mode: on this phone).
+  static Future<void> updateName(String name) async {
+    final n = name.trim();
+    if (n.isEmpty || n.length > 60) throw Exception('Name must be 1 to 60 characters');
+    final p = await _p;
+    if (remote) {
+      await _req('PUT', '/api/me', body: {'name': n});
+    } else {
+      // keep the stored account in step so the new name survives logout / login
+      final users = _users(p);
+      for (final k in users.keys.toList()) {
+        final u = Map<String, dynamic>.from(users[k]);
+        if (u['name'] == userName) {
+          u['name'] = n;
+          users[k] = u;
+        }
+      }
+      await p.setString('users', jsonEncode(users));
+    }
+    userName = n;
+    await p.setString('name', n);
+  }
+
   /// Demo mode: email se seedha naya password set hota hai.
   /// On a real backend this should be done with an email/SMS OTP.
   static Future<void> resetPassword(String email, String newPass) async {
@@ -181,66 +204,6 @@ class Api {
     return f;
   }
 
-  /// Room Designer: sends a furniture photo to the server's 3D service (POST /api/furniture/generate).
-  /// Returns the job id, or null when there is no 3D service (demo mode, or the server does not have it yet).
-  static Future<String?> furnitureStart(String photoPath) async {
-    if (!remote) return null;
-    final req = http.MultipartRequest('POST', Uri.parse('$_base/api/furniture/generate'));
-    if (_token != null) req.headers['Authorization'] = 'Bearer $_token';
-    req.files.add(await http.MultipartFile.fromPath('file', photoPath));
-    try {
-      final r = await http.Response.fromStream(await req.send().timeout(const Duration(minutes: 2)));
-      if (r.statusCode == 401) {
-        await logout();
-        throw Exception('Session expired. Please log in again');
-      }
-      if (r.statusCode == 404 || r.statusCode == 405 || r.statusCode == 501) return null; // no 3D service on this server
-      if (r.statusCode >= 400) throw Exception('3D service error (${r.statusCode})');
-      final d = jsonDecode(r.body);
-      final id = d is Map ? (d['job_id'] ?? d['id']) : null;
-      return id == null ? null : '$id';
-    } on TimeoutException {
-      throw Exception(_down);
-    } on SocketException {
-      throw Exception(_down);
-    } on http.ClientException {
-      throw Exception(_down);
-    }
-  }
-
-  /// Progress of a 3D job: {status: processing|ready|failed, progress, model_url, error}.
-  static Future<Map<String, dynamic>> furnitureStatus(String jobId) async {
-    final d = await _req('GET', '/api/furniture/generate/$jobId');
-    return d is Map ? Map<String, dynamic>.from(d) : <String, dynamic>{'status': 'failed', 'error': 'Bad answer from the server'};
-  }
-
-  /// Furniture hosted on the server (uploads/furniture/<Category>/<name>.png). Empty in demo mode.
-  static Future<List<dynamic>> furnitureCatalog() async {
-    if (!remote) return [];
-    final d = await _req('GET', '/api/furniture', auth: false);
-    return d is List ? List<dynamic>.from(d) : [];
-  }
-
-  /// Downloads a server image once and keeps it on the phone (kept between app restarts).
-  static Future<File?> cachedFile(String p) async {
-    if (!isServerPath(p)) {
-      final f = File(p);
-      return f.existsSync() ? f : null;
-    }
-    final dir = Directory('${(await getApplicationSupportDirectory()).path}/furniture_cache');
-    if (!dir.existsSync()) dir.createSync(recursive: true);
-    final f = File('${dir.path}/${p.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_')}');
-    if (f.existsSync() && f.lengthSync() > 0) return f;
-    try {
-      final r = await http.get(Uri.parse(fileUrl(p))).timeout(const Duration(minutes: 1));
-      if (r.statusCode != 200) return null;
-      await f.writeAsBytes(r.bodyBytes);
-      return f;
-    } catch (_) {
-      return null;
-    }
-  }
-
   // ---------- CRUD (server or local) ----------
   static Future<List<dynamic>> list(String res) async {
     if (remote) return List<dynamic>.from(await _req('GET', '/api/$res') as List);
@@ -288,6 +251,43 @@ class Api {
     if (remote) return _remoteUpload(path);
     return path;
   }
+
+  // ---------- Room Designer: furniture photo -> 3D ----------
+
+  /// Sends a furniture photo to the server, which builds a 3D (.glb) model from it.
+  /// Returns the job id, or null when the server has no 3D service configured (or in demo mode).
+  static Future<String?> furnitureStart(String path) async {
+    if (!remote) return null;
+    final req = http.MultipartRequest('POST', Uri.parse('$_base/api/furniture/3d'));
+    if (_token != null) req.headers['Authorization'] = 'Bearer $_token';
+    req.files.add(await http.MultipartFile.fromPath('file', path));
+    try {
+      final r = await http.Response.fromStream(await req.send().timeout(const Duration(minutes: 2)));
+      if (r.statusCode == 501) return null;
+      if (r.statusCode == 401) {
+        await logout();
+        throw Exception('Session expired. Please log in again');
+      }
+      dynamic d;
+      try {
+        d = jsonDecode(r.body);
+      } catch (_) {}
+      if (r.statusCode >= 400) {
+        throw Exception(d is Map && d['error'] != null ? '${d['error']}' : 'Server error (${r.statusCode})');
+      }
+      return '${d['id']}';
+    } on TimeoutException {
+      throw Exception(_down);
+    } on SocketException {
+      throw Exception(_down);
+    } on http.ClientException {
+      throw Exception(_down);
+    }
+  }
+
+  /// {status: processing|ready|failed, progress: 0-100, model_url: '/files/x.glb', error: ''}
+  static Future<Map<String, dynamic>> furnitureStatus(String id) async =>
+      Map<String, dynamic>.from(await _req('GET', '/api/furniture/3d/$id') as Map);
 
   static Future<List<dynamic>> reminders() async {
     if (remote) return List<dynamic>.from(await _req('GET', '/api/reminders') as List);

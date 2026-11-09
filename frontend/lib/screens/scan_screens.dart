@@ -174,32 +174,56 @@ class _ScanScreenState extends State<ScanScreen> {
     if (!mounted) return;
     final nameC = TextEditingController(text: 'Room $n');
     final lC = TextEditingController(), wC = TextEditingController(), hC = TextEditingController(text: '2.7');
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Enter room size'),
-        content: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: nameC, decoration: const InputDecoration(labelText: 'Room name', border: OutlineInputBorder())),
-            _numField(lC, 'Length (meters)'),
-            _numField(wC, 'Width (meters)'),
-            _numField(hC, 'Height (meters)'),
-          ]),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Create')),
-        ],
-      ),
-    );
     double? p(TextEditingController c) => double.tryParse(c.text.trim().replaceAll(',', '.'));
-    final l = p(lC), w = p(wC), h = p(hC);
-    final name = nameC.text.trim().isEmpty ? 'Room $n' : nameC.text.trim();
-    if (ok != true) return;
-    if (l == null || w == null || h == null || l < 0.5 || w < 0.5 || l > 50 || w > 50 || h < 1.8 || h > 6) {
-      _snack('Enter valid sizes (length/width 0.5 to 50 m, height 1.8 to 6 m)');
-      return;
+    double? l0, w0, h0;
+    while (true) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Enter room size'),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(controller: nameC, decoration: const InputDecoration(labelText: 'Room name', border: OutlineInputBorder())),
+              _numField(lC, 'Length (meters), e.g. 4.5'),
+              _numField(wC, 'Width (meters), e.g. 3.5'),
+              _numField(hC, 'Height (meters), e.g. 2.7'),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Create')),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+      final lv = p(lC), wv = p(wC), hv = p(hC);
+      if (lv == null || wv == null || hv == null || lv < 1 || wv < 1 || lv > 30 || wv > 30 || hv < 1.8 || hv > 6) {
+        _snack('Enter valid sizes (length/width 1 to 30 m, height 1.8 to 6 m)');
+        continue; // ask again, the typed values stay in the boxes
+      }
+      final ratio = lv > wv ? lv / wv : wv / lv;
+      if (ratio > 5) {
+        // e.g. 0.8 x 50 m is almost certainly a typing mistake
+        final go = await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Please check the size'),
+            content: Text('${lv.toStringAsFixed(1)} m × ${wv.toStringAsFixed(1)} m is a very long and narrow room. Did you type the numbers correctly?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Edit')),
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Create anyway')),
+            ],
+          ),
+        );
+        if (go != true) continue;
+      }
+      l0 = lv;
+      w0 = wv;
+      h0 = hv;
+      break;
     }
+    final l = l0!, w = w0!, h = h0!;
+    final name = nameC.text.trim().isEmpty ? 'Room $n' : nameC.text.trim();
     setState(() => _busy = true);
     try {
       final meta = {
@@ -458,7 +482,19 @@ class ScanDetailScreen extends StatelessWidget {
       return const _Msg(Icons.info_outline, '.usdz cannot be shown on Android. Import a .glb instead.');
     }
     if (_isRemote) {
-      return ModelViewer(src: _url, alt: '${scan['name']}', ar: false, autoRotate: false, cameraControls: true, backgroundColor: const Color(0xFFEFF3FA), shadowIntensity: 1, shadowSoftness: 1, exposure: 1.05, environmentImage: 'neutral');
+      // The app downloads the model itself (Dart is not affected by Android's http rules for WebViews)
+      // and the viewer then opens the local copy.
+      return FutureBuilder<File?>(
+        future: Api.localFile(_raw),
+        builder: (context, snap) {
+          if (snap.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+          final f = snap.data;
+          if (snap.hasError || f == null) {
+            return const _Msg(Icons.cloud_off_outlined, 'Could not download the 3D model from the server. Check that the server is running and the phone is on the same Wi-Fi.');
+          }
+          return ModelViewer(src: 'file://${f.path}', alt: '${scan['name']}', ar: false, autoRotate: false, cameraControls: true, backgroundColor: const Color(0xFFEFF3FA), shadowIntensity: 1, shadowSoftness: 1, exposure: 1.05, environmentImage: 'neutral');
+        },
+      );
     }
     if (!_hasFile) return const _Msg(Icons.broken_image_outlined, '3D model file not found.');
     return ModelViewer(src: 'file://$_url', alt: '${scan['name']}', ar: false, autoRotate: false, cameraControls: true, backgroundColor: const Color(0xFFEFF3FA), shadowIntensity: 1, shadowSoftness: 1, exposure: 1.05, environmentImage: 'neutral');
@@ -481,7 +517,7 @@ class ScanDetailScreen extends StatelessWidget {
             ? _viewer()
             : TabBarView(physics: const NeverScrollableScrollPhysics(), children: [
                 _viewer(),
-                Container(color: Colors.white, child: CustomPaint(painter: FloorPlanPainter(room), size: Size.infinite)),
+                Container(color: const Color(0xFFF6F3EE), child: CustomPaint(painter: FloorPlanPainter(room), size: Size.infinite)),
               ]),
       ),
       if (room != null)
