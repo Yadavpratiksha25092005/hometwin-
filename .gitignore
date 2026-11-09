@@ -1,0 +1,4 @@
+﻿backend/.env
+frontend/android/.kotlin/
+frontend/.dart_tool/
+frontend/build/

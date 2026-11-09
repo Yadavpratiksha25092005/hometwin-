@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'api.dart';
+import 'scan/room_model.dart';
 import 'screens/auth_screen.dart';
 import 'screens/home_shell.dart';
 
@@ -10,10 +12,17 @@ const kBlue = Color(0xFF6338D6); // primary
 const kLavender = Color(0xFFA78BFA); // secondary
 const kLilac = Color(0xFFEDE7FF); // light tint (selected tab, chips)
 const kNavy = Color(0xFF172554); // text
-const kBg = Color(0xFFF7F5FF); // background
-const kBorder = Color(0xFFE8E3F8);
+const kBg = Color(0xFFF8F8FC); // background (almost white, only a hint of purple)
+const kBorder = Color(0xFFE9E9F2);
 
-void main() => runApp(const HomeTwinApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // wood texture for the floor of the generated 3D rooms (without it the floor is a plain colour)
+  try {
+    RoomTextures.wood = (await rootBundle.load('assets/models/wood_floor.jpg')).buffer.asUint8List();
+  } catch (_) {}
+  runApp(const HomeTwinApp());
+}
 
 class HomeTwinApp extends StatelessWidget {
   const HomeTwinApp({super.key});

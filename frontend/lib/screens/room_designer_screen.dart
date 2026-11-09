@@ -2,8 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_mlkit_subject_segmentation/google_mlkit_subject_segmentation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
 import 'package:path_provider/path_provider.dart';
@@ -19,6 +22,10 @@ import '../widgets/common.dart';
 ///  4. Drag to move, pinch to resize, twist with two fingers to turn it.
 /// Without a server (demo mode) the furniture photo itself is placed, and a few sample 3D pieces are included.
 
+/// 2D mode: the furniture photo gets its background removed and is dragged into the room as a cut-out.
+/// Set to true to also send the photo to the server for 3D (needs a 3D service key on the backend).
+const kEnable3d = true;
+
 const _maxPlaced = 5; // every 3D piece is its own WebView, so keep it reasonable
 
 class Furniture {
@@ -30,6 +37,8 @@ class Furniture {
   String? model; // 'asset:...' | '/files/x.glb' (server) | local path
   int progress;
   final bool sample;
+  final bool cut; // true = background removed (transparent PNG)
+  final double aspect; // width / height of the cut-out
 
   Furniture({
     required this.id,
@@ -40,12 +49,14 @@ class Furniture {
     this.model,
     this.progress = 0,
     this.sample = false,
+    this.cut = false,
+    this.aspect = 1.18,
   });
 
   bool get ready => status == 'ready' && model != null && model!.isNotEmpty;
 
   Map<String, dynamic> toJson() =>
-      {'id': id, 'name': name, 'photo': photo, 'status': status, 'jobId': jobId, 'model': model, 'progress': progress};
+      {'id': id, 'name': name, 'photo': photo, 'status': status, 'jobId': jobId, 'model': model, 'progress': progress, 'cut': cut, 'aspect': aspect};
 
   factory Furniture.fromJson(Map<String, dynamic> j) => Furniture(
         id: '${j['id']}',
@@ -55,6 +66,8 @@ class Furniture {
         jobId: j['jobId'] as String?,
         model: j['model'] as String?,
         progress: (j['progress'] as num?)?.toInt() ?? 0,
+        cut: j['cut'] == true,
+        aspect: (j['aspect'] as num?)?.toDouble() ?? 1.18,
       );
 }
 
@@ -72,6 +85,7 @@ class _Placed {
   Offset c; // centre, as a fraction of the room photo (0..1)
   double w; // width, as a fraction of the room photo width
   double yaw; // degrees
+  bool flip = false;
   _Placed(this.uid, this.fid, this.c, this.w, [this.yaw = 0]);
 }
 
@@ -93,9 +107,10 @@ class _RoomDesignerScreenState extends State<RoomDesignerScreen> {
   String? _sel;
   Timer? _timer;
   bool _polling = false;
+  bool _cutting = false;
   double _gW = 0.3, _gYaw = 0; // values at the start of a pinch / twist
 
-  String get _prefKey => 'designer_items_${Api.userName ?? ''}';
+  String get _prefKey => 'designer_items_${Api.accountKey ?? Api.userName ?? ''}';
 
   @override
   void initState() {
@@ -258,29 +273,96 @@ class _RoomDesignerScreenState extends State<RoomDesignerScreen> {
     final dir = await getApplicationDocumentsDirectory(); // the picker's temp copy can be deleted by the system
     final id = DateTime.now().microsecondsSinceEpoch.toString();
     final saved = await File(path).copy('${dir.path}/furn_$id.jpg');
-    final f = Furniture(id: id, name: name, photo: saved.path);
-    setState(() => _mine.insert(0, f));
 
-    String? note;
-    try {
-      final job = await Api.furnitureStart(saved.path);
-      if (job != null) {
-        f.jobId = job;
-        f.status = 'processing';
-        note = 'Making the 3D model... you can drop the photo into the room meanwhile.';
-      } else {
-        note = Api.remote
-            ? 'Added. The server has no 3D service set up yet, so the photo is used.'
-            : 'Added. 3D needs the server (demo mode), so the photo is used.';
+    // 1) remove the background -> transparent PNG
+    setState(() => _cutting = true);
+    final cut = await _cutout(saved.path, '${dir.path}/furn_${id}_cut.png');
+    if (!mounted) return;
+    final f = Furniture(id: id, name: name, photo: cut?.$1 ?? saved.path, cut: cut != null, aspect: cut?.$2 ?? 1.18);
+    setState(() {
+      _cutting = false;
+      _mine.insert(0, f);
+    });
+
+    String note = cut != null
+        ? 'Added. Drag it into your room.'
+        : 'Added, but the background could not be removed on this phone, so the full photo is used.';
+
+    // 2) optional: 3D model from the server
+    if (kEnable3d) {
+      try {
+        final job = await Api.furnitureStart(saved.path);
+        if (job != null) {
+          f.jobId = job;
+          f.status = 'processing';
+          note = 'Making the 3D model... you can drop the piece into the room meanwhile.';
+        }
+      } catch (e) {
+        note = '$note 3D failed: ${'$e'.replaceFirst('Exception: ', '')}';
       }
-    } catch (e) {
-      note = 'Added as a photo. 3D failed: ${'$e'.replaceFirst('Exception: ', '')}';
     }
     await _save();
     if (mounted) {
       setState(() {});
       _snack(note);
     }
+  }
+
+  /// Removes the background on the phone (Google ML Kit, Android) and trims the empty border.
+  /// Returns (png path, width/height) or null when it did not work.
+  Future<(String, double)?> _cutout(String src, String dst) async {
+    SubjectSegmenter? seg;
+    try {
+      seg = SubjectSegmenter(
+        options: SubjectSegmenterOptions(
+          enableForegroundConfidenceMask: false,
+          enableForegroundBitmap: true,
+          enableMultipleSubjects: SubjectResultOptions(enableConfidenceMask: false, enableSubjectBitmap: false),
+        ),
+      );
+      final r = await seg.processImage(InputImage.fromFilePath(src));
+      final bytes = r.foregroundBitmap;
+      if (bytes == null || bytes.isEmpty) return null;
+      final t = await _trim(bytes);
+      await File(dst).writeAsBytes(t.$1);
+      return (dst, t.$2);
+    } catch (_) {
+      return null; // e.g. iOS (not supported by ML Kit) or the model is still downloading
+    } finally {
+      await seg?.close();
+    }
+  }
+
+  /// Crops the transparent border around the subject. Returns (png bytes, width/height).
+  Future<(Uint8List, double)> _trim(Uint8List bytes) async {
+    final img = await decodeImageFromList(bytes); // throws if the bytes are not an image
+    final w = img.width, h = img.height;
+    final bd = await img.toByteData(format: ui.ImageByteFormat.rawRgba);
+    if (bd == null) return (bytes, w / h);
+    var minX = w, minY = h, maxX = -1, maxY = -1;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        if (bd.getUint8((y * w + x) * 4 + 3) > 24) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0) return (bytes, w / h);
+    final cw = maxX - minX + 1, ch = maxY - minY + 1;
+    final rec = ui.PictureRecorder();
+    Canvas(rec).drawImageRect(
+      img,
+      Rect.fromLTWH(minX.toDouble(), minY.toDouble(), cw.toDouble(), ch.toDouble()),
+      Rect.fromLTWH(0, 0, cw.toDouble(), ch.toDouble()),
+      Paint(),
+    );
+    final out = await rec.endRecording().toImage(cw, ch);
+    final data = await out.toByteData(format: ui.ImageByteFormat.png);
+    if (data == null) return (bytes, w / h);
+    return (data.buffer.asUint8List(), cw / ch);
   }
 
   Future<void> _deleteFurniture(Furniture f) async {
@@ -404,9 +486,9 @@ class _RoomDesignerScreenState extends State<RoomDesignerScreen> {
           title: const Text('Room Designer'),
           content: const Text(
             '1. Add a photo of your room.\n'
-            '2. Tap "Add photo" and take or pick a photo of any furniture you like. The app turns it into a 3D model.\n'
+            '2. Tap "Add photo" and take or pick a photo of any furniture you like. The app removes the background automatically.\n'
             '3. Press and hold a piece in the tray, then drag it onto your room (or just tap it).\n\n'
-            'Drag to move  •  pinch to resize  •  twist with two fingers to turn  •  tap a piece for more options.',
+            'Drag to move  •  pinch to resize  •  twist with two fingers to turn  •  flip button to mirror  •  tap a piece for more options.',
           ),
           actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
         ),
@@ -420,6 +502,7 @@ class _RoomDesignerScreenState extends State<RoomDesignerScreen> {
         body: SafeArea(
           child: Column(children: [
             _header(),
+            if (_cutting) const LinearProgressIndicator(minHeight: 3),
             Expanded(child: Padding(padding: const EdgeInsets.fromLTRB(12, 0, 12, 8), child: _room == null ? _emptyRoom() : _canvas())),
             _selBar(),
             _tray(),
@@ -501,7 +584,7 @@ class _RoomDesignerScreenState extends State<RoomDesignerScreen> {
   Widget _item(_Placed p, Size cs) {
     final f = _find(p.fid);
     if (f == null) return const SizedBox.shrink();
-    final w = p.w * cs.width, h = w * 0.85;
+    final w = p.w * cs.width, h = f.cut && !f.ready ? w / f.aspect : w * 0.85;
     final sel = _sel == p.uid;
     return Positioned(
       left: p.c.dx * cs.width - w / 2,
@@ -559,7 +642,21 @@ class _RoomDesignerScreenState extends State<RoomDesignerScreen> {
         ),
       );
     }
-    // no 3D (yet): show the furniture photo
+    if (f.cut) {
+      // 2D cut-out (background removed)
+      return Transform(
+        alignment: Alignment.center,
+        transform: Matrix4.identity()
+          ..rotateZ(p.yaw * math.pi / 180)
+          ..scale(p.flip ? -1.0 : 1.0, 1.0),
+        child: Stack(fit: StackFit.expand, children: [
+          Image.file(File(f.photo), fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.chair_outlined)),
+          if (f.status == 'processing')
+            const Positioned(right: 4, top: 4, child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))),
+        ]),
+      );
+    }
+    // no cut-out and no 3D: show the furniture photo as it is
     return Stack(fit: StackFit.expand, children: [
       PhotoThumb(src: f.photo, w: w, h: h, radius: 10, fallback: Icons.chair_outlined),
       if (f.status == 'processing')
@@ -599,6 +696,7 @@ class _RoomDesignerScreenState extends State<RoomDesignerScreen> {
         Expanded(child: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, color: kNavy))),
         b(Icons.rotate_left_rounded, 'Turn left', () => _turn(p, -20)),
         b(Icons.rotate_right_rounded, 'Turn right', () => _turn(p, 20)),
+        if (!f.ready) b(Icons.flip_rounded, 'Flip', () => setState(() => p.flip = !p.flip)),
         b(Icons.remove_circle_outline_rounded, 'Smaller', () => _resize(p, 0.9)),
         b(Icons.add_circle_outline_rounded, 'Bigger', () => _resize(p, 1.12)),
         b(Icons.view_in_ar_rounded, 'View in 3D', () => _view3d(f), color: kBlue),

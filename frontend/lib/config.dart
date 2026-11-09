@@ -9,4 +9,4 @@ const String kApiUrl = String.fromEnvironment('API_URL', defaultValue: 'http://1
 
 // true = "3D scan from video" is a DEMO for now (sample 3D rooms are added).
 // Set this to false once a real video -> 3D pipeline is connected.
-const bool kMockVideoScan = true;
+const bool kMockVideoScan = false;

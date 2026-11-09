@@ -177,16 +177,38 @@ void _addAutoFurniture(
 
 // ------------------------------------------------------------------ GLB
 
+/// Floor texture (wood planks, assets/models/wood_floor.jpg). It is loaded once at app start
+/// (see main.dart); without it the floor is simply a plain wood colour.
+class RoomTextures {
+  static Uint8List? wood;
+}
+
 /// One PBR material used by the generated room/furniture mesh.
 class _Mat {
   final String name;
   final List<double> color; // rgba 0..1
   final double metallic, roughness;
-  const _Mat(this.name, this.color, {this.metallic = 0.0, this.roughness = 0.9});
+  final bool doubleSided, blend, textured;
+  const _Mat(this.name, this.color, {this.metallic = 0.0, this.roughness = 0.9, this.doubleSided = true, this.blend = false, this.textured = false});
 }
 
-/// Builds a binary glTF (.glb) for ONE room: floor + low dark walls + optional auto-furniture,
-/// double-sided, Y-up, metres.
+/// Vertex data of everything that uses one material.
+class _Prim {
+  final pos = <double>[], uv = <double>[], col = <double>[];
+  final idx = <int>[];
+}
+
+/// A wall of the room: start point, length, direction (u) and inward normal (n), all in the XZ plane.
+class _Wall {
+  final double ax, az, len, ux, uz, nx, nz;
+  const _Wall(this.ax, this.az, this.len, this.ux, this.uz, this.nx, this.nz);
+}
+
+/// Builds a binary glTF (.glb) for ONE room: wooden floor, full-height painted walls with a
+/// skirting board, a door and windows, soft shadows along the walls, and optional auto-furniture.
+///
+/// "Dollhouse" trick: the walls are single-sided and face INWARD, so the walls between the
+/// camera and the room disappear automatically while you rotate the model. Y-up, metres.
 Uint8List buildRoomGlb(RoomData r, {String? roomName}) => _buildGlb([MapEntry(r, roomName)]);
 
 /// Combines several scanned rooms into ONE model. The rooms are auto-arranged side by side
@@ -229,152 +251,241 @@ Uint8List buildHouseGlb(List<MapEntry<RoomData, String?>> rooms) {
 }
 
 Uint8List _buildGlb(List<MapEntry<RoomData, String?>> rooms) {
-  final verts = <double>[];
-
-  // ---- materials: 0=floor 1=walls 2=trim, then furniture materials appended below
-  final materials = <_Mat>[
-    const _Mat('Floor', [0.50, 0.33, 0.17, 1.0], roughness: 0.75), // warm wood
-    const _Mat('Walls', [0.15, 0.15, 0.17, 1.0], roughness: 0.7), // dark low walls
-    const _Mat('Trim', [0.14, 0.14, 0.16, 1.0], roughness: 0.6),
-  ];
-  // index lists per material (parallel to `materials`)
-  final idxByMat = <List<int>>[<int>[], <int>[], <int>[]];
+  final wood = RoomTextures.wood;
+  final materials = <_Mat>[];
+  final prims = <_Prim>[];
+  final byName = <String, int>{};
 
   int addMat(_Mat m) {
+    final known = byName[m.name];
+    if (known != null) return known;
     materials.add(m);
-    idxByMat.add(<int>[]);
+    prims.add(_Prim());
+    byName[m.name] = materials.length - 1;
     return materials.length - 1;
   }
 
-  /// Adds an axis-aligned (optionally Y-rotated) box, each face with its own 4 verts
-  /// so auto-computed normals come out flat/correct. Centre (cx,cy,cz), half-extents (hx,hy,hz).
-  void addBox(double cx, double cy, double cz, double hx, double hy, double hz, int mat, {double rotY = 0}) {
-    final cos = math.cos(rotY), sin = math.sin(rotY);
-    List<double> rot(double x, double z) => [cx + x * cos - z * sin, cz + x * sin + z * cos];
-    // local corners (x,y,z) of the 8 box vertices
-    final c = <List<double>>[
-      for (final sy in [-1, 1])
-        for (final sx in [-1, 1])
-          for (final sz in [-1, 1]) [sx * hx, cy + sy * hy, sz * hz]
-    ];
-    List<double> v(int sx, int sy, int sz) {
-      final i = ((sy + 1) ~/ 2) * 4 + ((sx + 1) ~/ 2) * 2 + ((sz + 1) ~/ 2);
-      final p = c[i];
-      final xz = rot(p[0], p[2]);
-      return [xz[0], p[1], xz[1]];
+  /// Adds one quad (4 corners, counter-clockwise when seen from the FRONT side).
+  void quad(int m, List<List<double>> v, {List<List<double>>? uv, List<List<double>>? col}) {
+    final p = prims[m];
+    final b = p.pos.length ~/ 3;
+    for (final q in v) {
+      p.pos.addAll(q);
     }
-
-    void face(List<double> a, List<double> b, List<double> cc, List<double> d) {
-      final base = verts.length ~/ 3;
-      verts.addAll([...a, ...b, ...cc, ...d]);
-      idxByMat[mat].addAll([base, base + 1, base + 2, base, base + 2, base + 3]);
+    if (uv != null) {
+      for (final u in uv) {
+        p.uv.addAll(u);
+      }
     }
-
-    face(v(-1, -1, 1), v(1, -1, 1), v(1, 1, 1), v(-1, 1, 1)); // +z
-    face(v(1, -1, -1), v(-1, -1, -1), v(-1, 1, -1), v(1, 1, -1)); // -z
-    face(v(1, -1, 1), v(1, -1, -1), v(1, 1, -1), v(1, 1, 1)); // +x
-    face(v(-1, -1, -1), v(-1, -1, 1), v(-1, 1, 1), v(-1, 1, -1)); // -x
-    face(v(-1, 1, 1), v(1, 1, 1), v(1, 1, -1), v(-1, 1, -1)); // +y (top)
-    face(v(-1, -1, -1), v(1, -1, -1), v(1, -1, 1), v(-1, -1, 1)); // -y (bottom)
+    if (col != null) {
+      for (final c in col) {
+        p.col.addAll(c);
+      }
+    }
+    p.idx.addAll([b, b + 1, b + 2, b, b + 2, b + 3]);
   }
 
-  // ---- every room: floor + walls + trim + furniture
+  /// Axis-aligned (optionally Y-rotated) box. Centre (cx,cy,cz), half-extents (hx,hy,hz).
+  void addBox(double cx, double cy, double cz, double hx, double hy, double hz, int mat, {double rotY = 0}) {
+    final cs = math.cos(rotY), sn = math.sin(rotY);
+    List<double> v(int sx, int sy, int sz) {
+      final x = sx * hx, z = sz * hz;
+      return [cx + x * cs - z * sn, cy + sy * hy, cz + x * sn + z * cs];
+    }
+
+    void f(List<int> a, List<int> b, List<int> c, List<int> d) =>
+        quad(mat, [v(a[0], a[1], a[2]), v(b[0], b[1], b[2]), v(c[0], c[1], c[2]), v(d[0], d[1], d[2])]);
+
+    f([-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]); // +z
+    f([1, -1, -1], [-1, -1, -1], [-1, 1, -1], [1, 1, -1]); // -z
+    f([1, -1, 1], [1, -1, -1], [1, 1, -1], [1, 1, 1]); // +x
+    f([-1, -1, -1], [-1, -1, 1], [-1, 1, 1], [-1, 1, -1]); // -x
+    f([-1, 1, 1], [1, 1, 1], [1, 1, -1], [-1, 1, -1]); // top
+    f([-1, -1, -1], [1, -1, -1], [1, -1, 1], [-1, -1, 1]); // bottom
+  }
+
   for (final e in rooms) {
     final r = e.key;
-    final n = r.corners.length;
+    var c = [
+      for (final p in r.corners) [p[0], p[1]]
+    ];
+    var s = 0.0;
+    for (var i = 0; i < c.length; i++) {
+      final a = c[i], b = c[(i + 1) % c.length];
+      s += a[0] * b[1] - b[0] * a[1];
+    }
+    if (s < 0) c = c.reversed.toList(); // inside is now always on the left of each wall
+    final n = c.length;
+    final h = r.height;
 
-    final floorBase = verts.length ~/ 3;
-    for (final c in r.corners) {
-      verts.addAll([c[0], 0, c[1]]);
+    final floor = addMat(_Mat('Floor', wood != null ? const [1.0, 1.0, 1.0, 1.0] : const [0.50, 0.33, 0.17, 1.0], roughness: 0.6, textured: wood != null));
+    final wall = addMat(const _Mat('Walls', [0.94, 0.92, 0.88, 1.0], roughness: 0.95, doubleSided: false));
+    final trim = addMat(const _Mat('Baseboard', [0.97, 0.97, 0.95, 1.0], roughness: 0.6, doubleSided: false));
+    final cap = addMat(const _Mat('WallTop', [0.20, 0.20, 0.23, 1.0], roughness: 0.7));
+    final ao = addMat(const _Mat('AO', [0.0, 0.0, 0.0, 1.0], roughness: 1.0, blend: true));
+    final glass = addMat(const _Mat('Glass', [0.72, 0.86, 0.96, 1.0], roughness: 0.05, doubleSided: false));
+    final frame = addMat(const _Mat('Frame', [0.96, 0.96, 0.94, 1.0], roughness: 0.5, doubleSided: false));
+    final door = addMat(const _Mat('Door', [0.52, 0.35, 0.21, 1.0], roughness: 0.55, doubleSided: false));
+    final knob = addMat(const _Mat('Knob', [0.85, 0.72, 0.35, 1.0], metallic: 0.9, roughness: 0.3));
+
+    // floor: the texture tile covers 2.4 m x 1.2 m
+    final fp = prims[floor];
+    final fb = fp.pos.length ~/ 3;
+    for (final p in c) {
+      fp.pos.addAll([p[0], 0.0, p[1]]);
+      if (wood != null) fp.uv.addAll([p[0] / 2.4, p[1] / 1.2]);
     }
-    for (final t in triangulate(r.corners)) {
-      idxByMat[0].add(floorBase + t);
+    for (final t in triangulate(c)) {
+      fp.idx.add(fb + t);
     }
 
-    // Low, thick, dark walls (cut-away look) so the inside of the room stays visible.
-    const wallT = 0.12; // thickness (m)
-    final wallH = math.min(0.35, r.height);
-    var sa = 0.0; // sign tells which side of a wall is the inside
+    final ws = <_Wall>[];
     for (var i = 0; i < n; i++) {
-      final a = r.corners[i], b = r.corners[(i + 1) % n];
-      sa += a[0] * b[1] - b[0] * a[1];
-    }
-    for (var i = 0; i < n; i++) {
-      final a = r.corners[i], b = r.corners[(i + 1) % n];
+      final a = c[i], b = c[(i + 1) % n];
       final dx = b[0] - a[0], dz = b[1] - a[1];
       final len = math.sqrt(dx * dx + dz * dz);
       if (len < 1e-6) continue;
-      final nx = (sa > 0 ? dz : -dz) / len, nz = (sa > 0 ? -dx : dx) / len; // outward normal
-      final wx = (a[0] + b[0]) / 2 + nx * wallT / 2, wz = (a[1] + b[1]) / 2 + nz * wallT / 2;
-      addBox(wx, wallH / 2, wz, len / 2 + wallT / 2, wallH / 2, wallT / 2, 1, rotY: math.atan2(dz, dx));
+      final ux = dx / len, uz = dz / len;
+      ws.add(_Wall(a[0], a[1], len, ux, uz, -uz, ux)); // inward normal = (-uz, ux)
+    }
+
+    /// Quad lying ON a wall, from t0 to t1 along it and y0 to y1 up, pushed [eps] into the room.
+    void wquad(int m, _Wall w, double t0, double t1, double y0, double y1, double eps, {List<List<double>>? col}) {
+      List<double> pt(double t, double y) => [w.ax + w.ux * t + w.nx * eps, y, w.az + w.uz * t + w.nz * eps];
+      quad(m, [pt(t0, y0), pt(t1, y0), pt(t1, y1), pt(t0, y1)], col: col);
+    }
+
+    const g0 = [0.80, 0.78, 0.75, 1.0], g1 = [1.0, 1.0, 1.0, 1.0]; // a bit darker at the floor, lighter at the top
+    for (final w in ws) {
+      wquad(wall, w, 0, w.len, 0, h, 0, col: [g0, g0, g1, g1]);
+      wquad(trim, w, 0, w.len, 0, 0.09, 0.012); // skirting board
+
+      // top edge: gives the wall visible thickness when seen from above
+      const t = 0.12;
+      final ex = w.ax + w.ux * w.len, ez = w.az + w.uz * w.len;
+      quad(cap, [
+        [w.ax - w.ux * t, h, w.az - w.uz * t],
+        [ex + w.ux * t, h, ez + w.uz * t],
+        [ex + w.ux * t - w.nx * t, h, ez + w.uz * t - w.nz * t],
+        [w.ax - w.ux * t - w.nx * t, h, w.az - w.uz * t - w.nz * t],
+      ]);
+
+      // soft contact shadow on the floor along the wall (fake ambient occlusion)
+      const aoW = 0.55;
+      const dark = [0.0, 0.0, 0.0, 0.40], clear = [0.0, 0.0, 0.0, 0.0];
+      quad(ao, [
+        [w.ax, 0.003, w.az],
+        [ex, 0.003, ez],
+        [ex + w.nx * aoW, 0.003, ez + w.nz * aoW],
+        [w.ax + w.nx * aoW, 0.003, w.az + w.nz * aoW],
+      ], col: [dark, dark, clear, clear]);
+    }
+
+    // door + windows painted on the walls (same rule as the 2D floor plan:
+    // door on the longest wall, windows on the next longest walls)
+    void opening(_Wall w, double tFrac, double length, bool isDoor) {
+      if (w.len < 1.3) return;
+      final ln = math.min(length, w.len * 0.6);
+      final cc = (tFrac * w.len).clamp(ln / 2 + 0.08 * w.len, w.len - ln / 2 - 0.08 * w.len).toDouble();
+      final t0 = cc - ln / 2, t1 = cc + ln / 2;
+      const e = 0.01;
+      if (isDoor) {
+        final dh = math.min(2.05, h - 0.1);
+        wquad(frame, w, t0 - 0.05, t1 + 0.05, 0, dh + 0.05, e);
+        wquad(door, w, t0, t1, 0, dh, e * 2);
+        addBox(w.ax + w.ux * (t1 - 0.1) + w.nx * 0.03, 1.0, w.az + w.uz * (t1 - 0.1) + w.nz * 0.03, 0.02, 0.02, 0.02, knob);
+      } else {
+        final y0 = math.min(0.9, h * 0.33), y1 = math.min(2.1, h - 0.25);
+        final mid = (t0 + t1) / 2, ym = (y0 + y1) / 2;
+        wquad(frame, w, t0 - 0.06, t1 + 0.06, y0 - 0.06, y1 + 0.06, e);
+        wquad(glass, w, t0, t1, y0, y1, e * 2);
+        wquad(frame, w, mid - 0.02, mid + 0.02, y0, y1, e * 3);
+        wquad(frame, w, t0, t1, ym - 0.02, ym + 0.02, e * 3);
+      }
+    }
+
+    if (ws.isNotEmpty) {
+      final order = List<int>.generate(ws.length, (k) => k)..sort((a, b) => ws[b].len.compareTo(ws[a].len));
+      opening(ws[order.first], 0.28, 0.9, true);
+      for (final k in order.skip(1).take(n >= 4 ? 2 : 1)) {
+        opening(ws[k], 0.5, 1.3, false);
+      }
     }
 
     _addAutoFurniture(r, e.value, addMat, addBox);
   }
 
-  final mn = [double.infinity, double.infinity, double.infinity];
-  final mx = [-double.infinity, -double.infinity, -double.infinity];
-  for (var i = 0; i < verts.length; i++) {
-    final k = i % 3;
-    mn[k] = math.min(mn[k], verts[i]);
-    mx[k] = math.max(mx[k], verts[i]);
+  // ------------------------------------------------------------ write the .glb
+  final chunks = <Uint8List>[];
+  final bufferViews = <Map<String, dynamic>>[];
+  var pos = 0;
+  int addView(Uint8List data, {int? target}) {
+    final padded = (data.length + 3) & ~3;
+    chunks.add(Uint8List(padded)..setAll(0, data));
+    bufferViews.add({'buffer': 0, 'byteOffset': pos, 'byteLength': data.length, if (target != null) 'target': target});
+    pos += padded;
+    return bufferViews.length - 1;
   }
 
-  int pad4(int v) => (v + 3) & ~3;
-  final posBytes = verts.length * 4;
-
-  // Lay out one index bufferView per non-empty material group, after the position buffer.
-  final idxOff = <int>[];
-  var cursor = posBytes;
-  for (final idx in idxByMat) {
-    idxOff.add(cursor);
-    cursor += pad4(idx.length * 4); // Uint32 indices
-  }
-  final binLen = cursor;
-
-  final bin = ByteData(binLen);
-  for (var i = 0; i < verts.length; i++) {
-    bin.setFloat32(i * 4, verts[i], Endian.little);
-  }
-  for (var m = 0; m < idxByMat.length; m++) {
-    final idx = idxByMat[m];
-    for (var i = 0; i < idx.length; i++) {
-      bin.setUint32(idxOff[m] + i * 4, idx[i], Endian.little);
+  Uint8List f32(List<double> v) {
+    final b = ByteData(v.length * 4);
+    for (var i = 0; i < v.length; i++) {
+      b.setFloat32(i * 4, v[i], Endian.little);
     }
+    return b.buffer.asUint8List();
   }
 
-  // accessor 0 = positions; accessors 1..N = indices, one per material group (empty groups skipped)
-  final accessors = <Map<String, dynamic>>[
-    {'bufferView': 0, 'componentType': 5126, 'count': verts.length ~/ 3, 'type': 'VEC3', 'min': mn, 'max': mx},
-  ];
-  final bufferViews = <Map<String, dynamic>>[
-    {'buffer': 0, 'byteOffset': 0, 'byteLength': posBytes, 'target': 34962},
-  ];
+  Uint8List u32(List<int> v) {
+    final b = ByteData(v.length * 4);
+    for (var i = 0; i < v.length; i++) {
+      b.setUint32(i * 4, v[i], Endian.little);
+    }
+    return b.buffer.asUint8List();
+  }
+
+  final accessors = <Map<String, dynamic>>[];
   final primitives = <Map<String, dynamic>>[];
-  final materialsJson = <Map<String, dynamic>>[];
-  for (var m = 0; m < materials.length; m++) {
-    final mat = materials[m];
-    materialsJson.add({
-      'name': mat.name,
-      'doubleSided': true,
-      'pbrMetallicRoughness': {
-        'baseColorFactor': mat.color,
-        'metallicFactor': mat.metallic,
-        'roughnessFactor': mat.roughness,
-      },
-    });
-    final idx = idxByMat[m];
-    if (idx.isEmpty) continue;
-    bufferViews.add({'buffer': 0, 'byteOffset': idxOff[m], 'byteLength': idx.length * 4, 'target': 34963});
-    accessors.add({'bufferView': bufferViews.length - 1, 'componentType': 5125, 'count': idx.length, 'type': 'SCALAR'});
-    primitives.add({
-      'attributes': {'POSITION': 0},
-      'indices': accessors.length - 1,
-      'material': m,
-    });
+  for (var m = 0; m < prims.length; m++) {
+    final p = prims[m];
+    if (p.idx.isEmpty) continue;
+    final count = p.pos.length ~/ 3;
+    final mn = [double.infinity, double.infinity, double.infinity];
+    final mx = [-double.infinity, -double.infinity, -double.infinity];
+    for (var i = 0; i < p.pos.length; i++) {
+      final k = i % 3;
+      mn[k] = math.min(mn[k], p.pos[i]);
+      mx[k] = math.max(mx[k], p.pos[i]);
+    }
+    accessors.add({'bufferView': addView(f32(p.pos), target: 34962), 'componentType': 5126, 'count': count, 'type': 'VEC3', 'min': mn, 'max': mx});
+    final attrs = <String, int>{'POSITION': accessors.length - 1};
+    if (p.uv.isNotEmpty) {
+      accessors.add({'bufferView': addView(f32(p.uv), target: 34962), 'componentType': 5126, 'count': count, 'type': 'VEC2'});
+      attrs['TEXCOORD_0'] = accessors.length - 1;
+    }
+    if (p.col.isNotEmpty) {
+      accessors.add({'bufferView': addView(f32(p.col), target: 34962), 'componentType': 5126, 'count': count, 'type': 'VEC4'});
+      attrs['COLOR_0'] = accessors.length - 1;
+    }
+    accessors.add({'bufferView': addView(u32(p.idx), target: 34963), 'componentType': 5125, 'count': p.idx.length, 'type': 'SCALAR'});
+    primitives.add({'attributes': attrs, 'indices': accessors.length - 1, 'material': m});
   }
 
-  final gltf = {
+  final materialsJson = <Map<String, dynamic>>[
+    for (final mat in materials)
+      {
+        'name': mat.name,
+        'doubleSided': mat.doubleSided,
+        if (mat.blend) 'alphaMode': 'BLEND',
+        'pbrMetallicRoughness': {
+          'baseColorFactor': mat.color,
+          'metallicFactor': mat.metallic,
+          'roughnessFactor': mat.roughness,
+          if (mat.textured) 'baseColorTexture': {'index': 0},
+        },
+      }
+  ];
+
+  final gltf = <String, dynamic>{
     'asset': {'version': '2.0', 'generator': 'HomeDigitalTwin room scan'},
     'scene': 0,
     'scenes': [
@@ -387,15 +498,35 @@ Uint8List _buildGlb(List<MapEntry<RoomData, String?>> rooms) {
       {'primitives': primitives}
     ],
     'materials': materialsJson,
-    'accessors': accessors,
-    'bufferViews': bufferViews,
-    'buffers': [
-      {'byteLength': binLen}
-    ],
   };
+  if (wood != null) {
+    final img = addView(wood);
+    gltf['images'] = [
+      {'bufferView': img, 'mimeType': 'image/jpeg'}
+    ];
+    gltf['samplers'] = [
+      {'magFilter': 9729, 'minFilter': 9987, 'wrapS': 10497, 'wrapT': 10497}
+    ];
+    gltf['textures'] = [
+      {'sampler': 0, 'source': 0}
+    ];
+  }
+  gltf['accessors'] = accessors;
+  gltf['bufferViews'] = bufferViews;
+  gltf['buffers'] = [
+    {'byteLength': pos}
+  ];
 
-  var json = utf8.encode(jsonEncode(gltf));
-  final jsonPad = pad4(json.length) - json.length;
+  final binLen = pos;
+  final bin = Uint8List(binLen);
+  var off = 0;
+  for (final ch in chunks) {
+    bin.setAll(off, ch);
+    off += ch.length;
+  }
+
+  final json = utf8.encode(jsonEncode(gltf));
+  final jsonPad = ((json.length + 3) & ~3) - json.length;
   final jsonBytes = Uint8List(json.length + jsonPad)..setAll(0, json);
   for (var i = json.length; i < jsonBytes.length; i++) {
     jsonBytes[i] = 0x20; // pad JSON chunk with spaces
@@ -403,20 +534,16 @@ Uint8List _buildGlb(List<MapEntry<RoomData, String?>> rooms) {
 
   final total = 12 + 8 + jsonBytes.length + 8 + binLen;
   final out = ByteData(total);
-  var o = 0;
-  out.setUint32(o, 0x46546C67, Endian.little); // 'glTF'
-  out.setUint32(o + 4, 2, Endian.little);
-  out.setUint32(o + 8, total, Endian.little);
-  o = 12;
-  out.setUint32(o, jsonBytes.length, Endian.little);
-  out.setUint32(o + 4, 0x4E4F534A, Endian.little); // 'JSON'
-  o += 8;
+  out.setUint32(0, 0x46546C67, Endian.little); // 'glTF'
+  out.setUint32(4, 2, Endian.little);
+  out.setUint32(8, total, Endian.little);
+  out.setUint32(12, jsonBytes.length, Endian.little);
+  out.setUint32(16, 0x4E4F534A, Endian.little); // 'JSON'
   final res = out.buffer.asUint8List();
-  res.setAll(o, jsonBytes);
-  o += jsonBytes.length;
+  res.setAll(20, jsonBytes);
+  final o = 20 + jsonBytes.length;
   out.setUint32(o, binLen, Endian.little);
   out.setUint32(o + 4, 0x004E4942, Endian.little); // 'BIN\0'
-  o += 8;
-  res.setAll(o, bin.buffer.asUint8List());
+  res.setAll(o + 8, bin);
   return res;
 }

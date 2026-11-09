@@ -7,8 +7,8 @@ import '../widgets/resource_screen.dart';
 import 'asset_detail_screen.dart';
 
 const assetFields = [
-  FieldDef('name', 'Name'), FieldDef('category', 'Category'), FieldDef('room', 'Room (Kitchen / Living Room ...)'),
-  FieldDef('brand', 'Brand'), FieldDef('model', 'Model'), FieldDef('serial_no', 'Serial No'),
+  FieldDef('name', 'Device name (e.g. Fridge, AC, TV, Washing Machine)'), FieldDef('room', 'Room (Kitchen / Living Room ...)'),
+  FieldDef('brand', 'Brand'), FieldDef('model', 'Model (optional)'), FieldDef('serial_no', 'Serial No (optional)'),
   FieldDef('purchase_date', 'Purchase date', FType.date), FieldDef('price', 'Price', FType.number),
   FieldDef('photo_url', 'Photo', FType.file), FieldDef('notes', 'Notes', FType.multiline),
 ];

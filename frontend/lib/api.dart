@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,7 +12,14 @@ import 'notifications.dart';
 ///  * DEMO (kApiUrl empty): no backend, all data is kept in the phone's local storage.
 ///  * SERVER (kApiUrl set): Go backend (/api/...) se baat karta hai.
 class Api {
-  static String? userName;
+  /// Display name. It is a notifier so every screen that shows it updates the moment it changes.
+  static final ValueNotifier<String?> nameN = ValueNotifier<String?>(null);
+  static String? get userName => nameN.value;
+  static set userName(String? v) => nameN.value = v;
+
+  /// The name the account had when it logged in. It never changes when the display name is edited,
+  /// so data stored "per user" on the phone (e.g. Room Designer furniture) is not lost on a rename.
+  static String? accountKey;
   static String? _token;
 
   static bool get remote => kApiUrl.isNotEmpty;
@@ -24,10 +32,17 @@ class Api {
     if (remote) {
       _token = p.getString('token');
       userName = p.getString('name');
+      await _loadKey(p);
       return _token != null;
     }
     userName = p.getString('name');
+    await _loadKey(p);
     return p.getBool('loggedIn') ?? false;
+  }
+
+  static Future<void> _loadKey(SharedPreferences p) async {
+    accountKey = p.getString('akey') ?? userName;
+    if (accountKey != null) await p.setString('akey', accountKey!);
   }
 
   static Future<void> logout() async {
@@ -37,6 +52,8 @@ class Api {
     await p.remove('token');
     await p.remove('loggedIn');
     await p.remove('name');
+    await p.remove('akey');
+    accountKey = null;
   }
 
   static Map<String, dynamic> _users(SharedPreferences p) =>
@@ -44,8 +61,10 @@ class Api {
 
   static Future<void> _start(SharedPreferences p, String name) async {
     userName = name;
+    accountKey = name;
     await p.setBool('loggedIn', true);
     await p.setString('name', name);
+    await p.setString('akey', name);
   }
 
   static Future<void> register(String name, String email, String pass,
@@ -73,13 +92,25 @@ class Api {
     await _start(p, u['name']);
   }
 
-  /// Changes the display name (server mode: saved on the server, demo mode: on this phone).
-  static Future<void> updateName(String name) async {
+  /// Changes the display name. Returns true when it was saved on the server (or in demo mode),
+  /// false when the server is too old to know this feature: the name is then changed on this phone only.
+  static Future<bool> updateName(String name) async {
     final n = name.trim();
     if (n.isEmpty || n.length > 60) throw Exception('Name must be 1 to 60 characters');
     final p = await _p;
+    var synced = true;
     if (remote) {
-      await _req('PUT', '/api/me', body: {'name': n});
+      try {
+        await _req('PUT', '/api/me', body: {'name': n});
+      } on Exception catch (e) {
+        final m = '$e';
+        // 404 / 405 = the running backend does not have PUT /api/me yet
+        if (m.contains('(404)') || m.contains('(405)')) {
+          synced = false;
+        } else {
+          rethrow;
+        }
+      }
     } else {
       // keep the stored account in step so the new name survives logout / login
       final users = _users(p);
@@ -92,8 +123,9 @@ class Api {
       }
       await p.setString('users', jsonEncode(users));
     }
-    userName = n;
     await p.setString('name', n);
+    userName = n; // notifies every screen that shows the name
+    return synced;
   }
 
   /// Demo mode: email se seedha naya password set hota hai.
@@ -160,6 +192,8 @@ class Api {
     userName = '${d['user']['name']}';
     await p.setString('token', _token!);
     await p.setString('name', userName!);
+    accountKey = userName;
+    await p.setString('akey', userName!);
     await p.setBool('loggedIn', true);
   }
 

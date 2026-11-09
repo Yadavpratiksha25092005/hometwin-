@@ -151,21 +151,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
     if (v == null || v.isEmpty || v == Api.userName) return;
     try {
-      await Api.updateName(v);
-      if (mounted) setState(() {});
+      final synced = await Api.updateName(v);
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(synced ? 'Name updated' : 'Name changed on this phone. Restart the updated backend to save it on the server too.'),
+      ));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))));
     }
   }
 
-  Widget _profileCard() => InkWell(
+  Widget _profileCard() => ValueListenableBuilder<String?>(valueListenable: Api.nameN, builder: (_, __, ___) => _profileCardBody());
+
+  Widget _profileCardBody() => InkWell(
         borderRadius: BorderRadius.circular(28),
         onTap: _editName,
         child: Container(
           padding: const EdgeInsets.fromLTRB(16, 16, 12, 16),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(28),
-            gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFEDE7FF), Color(0xFFDCD0FF)]),
+            gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFF3EFFF), Color(0xFFE6DEFF)]),
             border: Border.all(color: Colors.white, width: 1.5),
             boxShadow: [BoxShadow(color: kBlue.withValues(alpha: 0.16), blurRadius: 22, offset: const Offset(0, 10))],
           ),
@@ -229,57 +235,160 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       );
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Profile')),
-        body: ListView(padding: const EdgeInsets.all(12), children: [
-          _profileCard(),
-          const SizedBox(height: 8),
-          _tile(Icons.build_circle_outlined, 'Maintenance & Warranty', () => _push(context, const MaintenanceScreen())),
-          _tile(Icons.history_rounded, 'Service History', () => _push(context, const MaintenanceScreen(initialTab: 1))),
-          _tile(Icons.verified_user_outlined, 'Warranties', () => _push(context, const MaintenanceScreen(initialTab: 2))),
-          _tile(Icons.notifications_outlined, 'Notifications', () => _push(context, const NotificationsScreen())),
-          _tile(Icons.weekend_outlined, 'Room Designer', () => _push(context, const RoomDesignerScreen())),
-          _tile(Icons.ios_share_rounded, 'Export / Share Home Report (PDF)', () async {
-            try {
-              final f = await ReportPdf.build();
-              await SharePlus.instance.share(ShareParams(files: [XFile(f.path)], text: 'My Home Digital Twin report'));
-            } catch (e) {
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not create report: $e')));
-              }
-            }
-          }),
-          _tile(Icons.auto_awesome_outlined, 'Load sample data', () async {
-            await Api.seedDemo();
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sample data added. Check the Assets / Maintenance tabs.')));
-            }
-          }),
-          _tile(Icons.delete_sweep_outlined, 'Clear all data', () async {
-            final ok = await showDialog<bool>(
-              context: context,
-              builder: (_) => AlertDialog(
-                title: const Text('Clear all data?'),
-                content: const Text('All assets, warranties, documents and tasks will be removed.'),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                  TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Clear', style: TextStyle(color: Colors.red))),
-                ],
-              ),
-            );
-            if (ok == true) await Api.clearData();
-          }),
-          _tile(Icons.logout, 'Logout', () async {
-            await Api.logout();
-            if (context.mounted) {
-              Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const AuthScreen()), (_) => false);
-            }
-          }),
+  // ------------------------------------------------------------------ header + menu
+
+  Widget _header() => SizedBox(
+        height: 96,
+        child: Stack(children: [
+          Positioned(right: 0, top: 0, child: IgnorePointer(child: CustomPaint(size: const Size(150, 88), painter: _SkylinePainter()))),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Profile', style: TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: kNavy)),
+              SizedBox(height: 4),
+              SizedBox(width: 230, child: Text('Manage your account & preferences', style: TextStyle(fontSize: 13.5, color: Color(0xFF5A6785), height: 1.25))),
+            ]),
+          ),
         ]),
       );
 
-  Widget _tile(IconData i, String t, VoidCallback onTap) => Card(
-        child: ListTile(leading: Icon(i, color: kBlue), title: Text(t), trailing: const Icon(Icons.chevron_right), onTap: onTap),
+  Widget _group(String title, List<Widget> items) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(6, 18, 0, 8),
+          child: Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF5A6785), letterSpacing: 0.4)),
+        ),
+        ...items,
+      ]);
+
+  Widget _item(IconData icon, Color color, String title, String sub, VoidCallback onTap) => Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [BoxShadow(color: kBlue.withValues(alpha: 0.07), blurRadius: 16, offset: const Offset(0, 6))],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(14)),
+                  child: Icon(icon, color: color, size: 23),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: kNavy)),
+                    const SizedBox(height: 2),
+                    Text(sub, style: const TextStyle(fontSize: 12, color: Color(0xFF5A6785), height: 1.25)),
+                  ]),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: Color(0xFF9AA3BD)),
+              ]),
+            ),
+          ),
+        ),
       );
+
+  void _snack(String m) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  }
+
+  Future<bool> _confirm(String title, String body, String action) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: Text(title),
+          content: Text(body),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(context, true), child: Text(action, style: const TextStyle(color: Colors.red))),
+          ],
+        ),
+      ) ??
+      false;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: Container(
+          decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.center, colors: [Color(0xFFF1EEFB), kBg])),
+          child: SafeArea(
+            bottom: false,
+            child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 28), children: [
+              _header(),
+              const SizedBox(height: 8),
+              _profileCard(),
+              _group('Home', [
+                _item(Icons.build_circle_outlined, kBlue, 'Maintenance & Warranty', 'Upcoming tasks and expiring warranties', () => _push(context, const MaintenanceScreen())),
+                _item(Icons.history_rounded, const Color(0xFF2563EB), 'Service History', 'Everything that was serviced or repaired', () => _push(context, const MaintenanceScreen(initialTab: 1))),
+                _item(Icons.verified_user_outlined, const Color(0xFF1B9E55), 'Warranties', 'Track warranty dates of your assets', () => _push(context, const MaintenanceScreen(initialTab: 2))),
+                _item(Icons.notifications_none_rounded, const Color(0xFFF08A24), 'Notifications', 'Reminders and alerts', () => _push(context, const NotificationsScreen())),
+              ]),
+              _group('Tools', [
+                _item(Icons.weekend_outlined, const Color(0xFFE0457B), 'Room Designer', 'Drag furniture into a photo of your room', () => _push(context, const RoomDesignerScreen())),
+                _item(Icons.ios_share_rounded, const Color(0xFF6B4FD8), 'Export / Share Home Report', 'Create a PDF of your home and share it', () async {
+                  try {
+                    final f = await ReportPdf.build();
+                    await SharePlus.instance.share(ShareParams(files: [XFile(f.path)], text: 'My Home Digital Twin report'));
+                  } catch (e) {
+                    _snack('Could not create report: $e');
+                  }
+                }),
+              ]),
+              _group('Data & account', [
+                _item(Icons.auto_awesome_outlined, kLavender, 'Load sample data', 'Fill the app with example assets and tasks', () async {
+                  await Api.seedDemo();
+                  _snack('Sample data added. Check the Assets / Maintenance tabs.');
+                }),
+                _item(Icons.delete_sweep_outlined, Colors.red, 'Clear all data', 'Remove assets, warranties, documents and tasks', () async {
+                  if (await _confirm('Clear all data?', 'All assets, warranties, documents and tasks will be removed.', 'Clear')) await Api.clearData();
+                }),
+                _item(Icons.logout_rounded, Colors.red, 'Logout', 'Sign out of this device', () async {
+                  if (!await _confirm('Log out?', 'You can log in again any time.', 'Log out')) return;
+                  await Api.logout();
+                  if (mounted) {
+                    Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const AuthScreen()), (_) => false);
+                  }
+                }),
+              ]),
+            ]),
+          ),
+        ),
+      );
+}
+
+/// Small lavender city skyline for the top right of the Profile screen.
+class _SkylinePainter extends CustomPainter {
+  // x, width, height (all as a fraction of the drawing area)
+  static const _b = [(0.02, 0.16, 0.42), (0.20, 0.18, 0.68), (0.40, 0.20, 1.0), (0.62, 0.16, 0.58), (0.80, 0.18, 0.80)];
+
+  @override
+  void paint(Canvas c, Size s) {
+    final shader = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [kLavender.withValues(alpha: 0.50), kLavender.withValues(alpha: 0.12)],
+    ).createShader(Offset.zero & s);
+    final win = Paint()..color = Colors.white.withValues(alpha: 0.55);
+    for (final b in _b) {
+      final x = b.$1 * s.width, w = b.$2 * s.width, h = b.$3 * s.height;
+      final top = s.height - h;
+      c.drawRRect(RRect.fromRectAndCorners(Rect.fromLTWH(x, top, w, h), topLeft: const Radius.circular(5), topRight: const Radius.circular(5)), Paint()..shader = shader);
+      // windows: 2 columns
+      for (var row = 0; row < (h - 14) ~/ 11; row++) {
+        for (var col = 0; col < 2; col++) {
+          c.drawRRect(RRect.fromRectAndRadius(Rect.fromLTWH(x + w * (0.2 + col * 0.42), top + 9 + row * 11, w * 0.2, 5), const Radius.circular(1.5)), win);
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SkylinePainter old) => false;
 }

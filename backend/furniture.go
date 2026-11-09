@@ -10,7 +10,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -34,29 +36,44 @@ var providerHTTP = &http.Client{Timeout: 60 * time.Second}
 
 // POST /api/furniture/3d  (multipart, field "file": jpg/png) -> 202 {"id": 12}
 func (a *App) furnitureStart(w http.ResponseWriter, r *http.Request, uid int64) {
-	key := os.Getenv("MESHY_API_KEY")
-	if key == "" {
-		writeErr(w, 501, "3D generation is not configured on the server (set MESHY_API_KEY)")
-		return
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, 12<<20)
-	f, _, err := r.FormFile("file")
+	key := os.Getenv("MESHY_API_KEY") // empty -> Tripo (TRIPO_API_KEY)
+	r.Body = http.MaxBytesReader(w, r.Body, 80<<20)
+	f, hdr, err := r.FormFile("file")
 	if err != nil {
-		writeErr(w, 400, "file required (jpg or png, max 12 MB)")
+		writeErr(w, 400, "file required (photo or video, max 80 MB)")
 		return
 	}
 	defer f.Close()
 	img, err := io.ReadAll(f)
 	if err != nil || len(img) == 0 {
-		writeErr(w, 400, "could not read the image")
+		writeErr(w, 400, "could not read the file")
 		return
+	}
+	// Video -> take one clear frame with ffmpeg, then continue like a photo.
+	ext := strings.ToLower(filepath.Ext(hdr.Filename))
+	switch ext {
+	case ".mp4", ".mov", ".avi", ".mkv", ".webm", ".3gp", ".m4v":
+		frame, ferr := videoFrame(img, ext)
+		if ferr != nil {
+			writeErr(w, 400, "could not read the video: "+ferr.Error())
+			return
+		}
+		img = frame
 	}
 	mime := http.DetectContentType(img)
 	if mime != "image/jpeg" && mime != "image/png" {
-		writeErr(w, 400, "only jpg or png images are supported")
+		writeErr(w, 400, "only jpg, png or video files are supported")
 		return
 	}
 
+	if key == "" {
+		if os.Getenv("TRIPO_API_KEY") != "" {
+			a.startTripo(w, r, uid, img, mime)
+			return
+		}
+		writeErr(w, 501, "3D generation is not configured on the server (set TRIPO_API_KEY)")
+		return
+	}
 	body, _ := json.Marshal(map[string]any{
 		"image_url":        "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(img),
 		"should_texture":   true,
@@ -112,7 +129,30 @@ func (a *App) furnitureStatus(w http.ResponseWriter, r *http.Request, uid int64)
 	reply := func() {
 		writeJSON(w, 200, map[string]any{"status": status, "progress": progress, "model_url": modelURL, "error": errMsg})
 	}
-	if status != "processing" {
+	if status != "processing" || taskID == "hf" {
+		reply()
+		return
+	}
+	if strings.HasPrefix(taskID, "tripo:") {
+		st, pr, glb, emsg := tripoTask(r.Context(), strings.TrimPrefix(taskID, "tripo:"))
+		switch st {
+		case "success":
+			file, derr := downloadGLB(glb)
+			if derr != nil {
+				reply() // try again on the next poll
+				return
+			}
+			status, modelURL, progress = "ready", "/files/"+file, 100
+			a.db.Exec(r.Context(), `UPDATE furniture_jobs SET status='ready', model_url=$1, progress=100 WHERE id=$2::text::bigint`,
+				modelURL, r.PathValue("id"))
+		case "failed":
+			status, errMsg = "failed", emsg
+			a.db.Exec(r.Context(), `UPDATE furniture_jobs SET status='failed', error=$1 WHERE id=$2::text::bigint`,
+				errMsg, r.PathValue("id"))
+		default:
+			progress = pr
+			a.db.Exec(r.Context(), `UPDATE furniture_jobs SET progress=$1 WHERE id=$2::text::bigint`, progress, r.PathValue("id"))
+		}
 		reply()
 		return
 	}
@@ -189,4 +229,29 @@ func downloadGLB(url string) (string, error) {
 		return "", err
 	}
 	return name, nil
+}
+
+// videoFrame saves the video to a temp file and grabs one frame (~1s in) as jpg. Needs ffmpeg.
+func videoFrame(video []byte, ext string) ([]byte, error) {
+	in, err := os.CreateTemp("", "scan_*"+ext)
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(in.Name())
+	if _, err := in.Write(video); err != nil {
+		in.Close()
+		return nil, err
+	}
+	in.Close()
+	out := in.Name() + ".jpg"
+	defer os.Remove(out)
+	for _, ss := range []string{"1", "0"} { // very short clips: fall back to first frame
+		cmd := exec.Command("ffmpeg", "-y", "-ss", ss, "-i", in.Name(), "-frames:v", "1", "-q:v", "2", out)
+		if err := cmd.Run(); err == nil {
+			if b, rerr := os.ReadFile(out); rerr == nil && len(b) > 0 {
+				return b, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("ffmpeg could not extract a frame")
 }

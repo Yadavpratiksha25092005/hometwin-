@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -263,42 +264,90 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
-  /// Pick a video -> "processing" -> add a sample 3D room (DEMO, kMockVideoScan).
+  /// Photo or video -> real 3D (.glb). Server (Meshy) builds it; for video the server takes one frame.
   Future<void> _videoScan() async {
-    if (!kMockVideoScan) {
-      _snack('3D from video is not available yet.');
+    if (!Api.remote) {
+      _snack('Real 3D needs server mode (set API_URL in config.dart)');
       return;
     }
     setState(() => _busy = true);
+    final prog = ValueNotifier<int>(0);
+    var dialogOpen = false;
     try {
-      final picked = await FilePicker.pickFile();
-      if (picked == null) return;
-      final n = picked.name.toLowerCase();
-      const ok = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.3gp', '.m4v'];
+      final src = await showModalBottomSheet<String>(
+        context: context,
+        builder: (_) => SafeArea(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            ListTile(leading: const Icon(Icons.photo_camera), title: const Text('Take a photo with the camera'), onTap: () => Navigator.pop(context, 'photo')),
+            ListTile(leading: const Icon(Icons.videocam), title: const Text('Record a video with the camera'), onTap: () => Navigator.pop(context, 'video')),
+            ListTile(leading: const Icon(Icons.folder_open), title: const Text('Choose from gallery / files'), onTap: () => Navigator.pop(context, 'file')),
+          ]),
+        ),
+      );
+      if (src == null) return;
+      String? path;
+      String pickedName = '';
+      if (src == 'file') {
+        final f = await FilePicker.pickFile();
+        path = f?.path;
+        pickedName = f?.name ?? '';
+      } else {
+        final ip = ImagePicker();
+        final x = src == 'photo'
+            ? await ip.pickImage(source: ImageSource.camera, maxWidth: 2048, imageQuality: 90)
+            : await ip.pickVideo(source: ImageSource.camera, maxDuration: const Duration(seconds: 30));
+        path = x?.path;
+        pickedName = x == null ? '' : (x.name.isNotEmpty ? x.name : (src == 'photo' ? 'photo.jpg' : 'video.mp4'));
+      }
+      if (path == null || pickedName.isEmpty) return;
+      final n = pickedName.toLowerCase();
+      const ok = ['.jpg', '.jpeg', '.png', '.mp4', '.mov', '.avi', '.mkv', '.webm', '.3gp', '.m4v'];
       if (!ok.any(n.endsWith)) {
-        _snack('Choose a video file (mp4, mov, avi...)');
+        _snack('Choose a photo (jpg/png) or a video (mp4, mov...)');
         return;
       }
       if (!mounted) return;
-      await showDialog(context: context, barrierDismissible: false, builder: (_) => const _FakeProcessing());
-      final catalog = List<dynamic>.from(jsonDecode(await rootBundle.loadString('assets/models/catalog.json')));
-      final used = (await Api.list('scans')).where((s) => s['source'] == 'demo_video').length;
-      final m = catalog[used % catalog.length] as Map<String, dynamic>;
-      final round = used ~/ catalog.length;
-      final name = round == 0 ? '${m['name']}' : '${m['name']} (${round + 1})';
-      final room = RoomData.fromJson(Map<String, dynamic>.from(m['meta']));
+      final name = await _askName(pickedName.replaceAll(RegExp(r'\.[^.]+$'), ''), pickedName);
+      if (name == null || !mounted) return;
+      showDialog(context: context, barrierDismissible: false, builder: (_) => _Progress3D(prog));
+      dialogOpen = true;
+      final job = await Api.furnitureStart(path);
+      if (job == null) throw Exception('The 3D service is not available on the server');
+      String? modelUrl;
+      for (var i = 0; i < 150 && modelUrl == null; i++) {
+        await Future.delayed(const Duration(seconds: 4));
+        try {
+          final s = await Api.furnitureStatus(job);
+          final st = '${s['status']}';
+          if (st == 'ready') {
+            modelUrl = '${s['model_url']}';
+          } else if (st == 'failed') {
+            throw Exception('${s['error'] ?? 'The 3D model could not be made. Try a clearer photo or video.'}');
+          } else {
+            prog.value = (s['progress'] as num?)?.toInt() ?? prog.value;
+          }
+        } on SocketException {
+          // network hiccup: try again
+        }
+      }
+      if (modelUrl == null) throw Exception('This is taking too long. Please try again later');
       await Api.create('scans', {
         'name': name,
-        'notes': '${room.summary}  •  Demo (${picked.name})',
-        'model_url': 'asset:${m['file']}',
-        'source': 'demo_video',
-        'meta': m['meta'],
+        'notes': 'AI 3D from ${pickedName}',
+        'model_url': modelUrl,
+        'source': 'photo_3d',
       });
+      if (dialogOpen && mounted) {
+        Navigator.pop(context);
+        dialogOpen = false;
+      }
       _reload();
-      _snack('"$name" created');
+      _snack('"$name" ready');
     } catch (e) {
-      _snack('Video scan failed: $e');
+      _snack('3D scan failed: $e');
     } finally {
+      if (dialogOpen && mounted) Navigator.pop(context);
+      prog.dispose();
       if (mounted) setState(() => _busy = false);
     }
   }
@@ -376,7 +425,7 @@ class _ScanScreenState extends State<ScanScreen> {
                       child: OutlinedButton.icon(
                         onPressed: _busy ? null : _videoScan,
                         icon: const Icon(Icons.videocam),
-                        label: const Text('3D scan from video (demo)'),
+                        label: const Text('3D from photo / video'),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -434,6 +483,7 @@ class _ScanScreenState extends State<ScanScreen> {
                         trailing: switch (it['source']) {
                           'manual_room' => StatusPill.green('Quick room'),
                           'demo_video' => StatusPill.blue('Video scan'),
+                          'photo_3d' => StatusPill.blue('AI 3D'),
                           'arcore_room' => StatusPill.blue('AR scan'),
                           _ => StatusPill.grey('Imported'),
                         },
@@ -476,7 +526,7 @@ class ScanDetailScreen extends StatelessWidget {
 
   Widget _viewer() {
     if (_raw.startsWith('asset:')) {
-      return ModelViewer(src: _raw.substring(6), alt: '${scan['name']}', ar: false, autoRotate: false, cameraControls: true, backgroundColor: const Color(0xFFEFF3FA), shadowIntensity: 1, shadowSoftness: 1, exposure: 1.05, environmentImage: 'neutral');
+      return ModelViewer(src: _raw.substring(6), alt: '${scan['name']}', ar: false, autoRotate: false, cameraControls: true, cameraOrbit: '30deg 58deg auto', backgroundColor: const Color(0xFFEFF3FA), shadowIntensity: 1, shadowSoftness: 1, exposure: 1.05, environmentImage: 'neutral');
     }
     if (_url.toLowerCase().endsWith('.usdz')) {
       return const _Msg(Icons.info_outline, '.usdz cannot be shown on Android. Import a .glb instead.');
@@ -492,12 +542,12 @@ class ScanDetailScreen extends StatelessWidget {
           if (snap.hasError || f == null) {
             return const _Msg(Icons.cloud_off_outlined, 'Could not download the 3D model from the server. Check that the server is running and the phone is on the same Wi-Fi.');
           }
-          return ModelViewer(src: 'file://${f.path}', alt: '${scan['name']}', ar: false, autoRotate: false, cameraControls: true, backgroundColor: const Color(0xFFEFF3FA), shadowIntensity: 1, shadowSoftness: 1, exposure: 1.05, environmentImage: 'neutral');
+          return ModelViewer(src: 'file://${f.path}', alt: '${scan['name']}', ar: false, autoRotate: false, cameraControls: true, cameraOrbit: '30deg 58deg auto', backgroundColor: const Color(0xFFEFF3FA), shadowIntensity: 1, shadowSoftness: 1, exposure: 1.05, environmentImage: 'neutral');
         },
       );
     }
     if (!_hasFile) return const _Msg(Icons.broken_image_outlined, '3D model file not found.');
-    return ModelViewer(src: 'file://$_url', alt: '${scan['name']}', ar: false, autoRotate: false, cameraControls: true, backgroundColor: const Color(0xFFEFF3FA), shadowIntensity: 1, shadowSoftness: 1, exposure: 1.05, environmentImage: 'neutral');
+    return ModelViewer(src: 'file://$_url', alt: '${scan['name']}', ar: false, autoRotate: false, cameraControls: true, cameraOrbit: '30deg 58deg auto', backgroundColor: const Color(0xFFEFF3FA), shadowIntensity: 1, shadowSoftness: 1, exposure: 1.05, environmentImage: 'neutral');
   }
 
   Widget _stat(String label, String value) => Expanded(
@@ -605,54 +655,25 @@ class _Msg extends StatelessWidget {
       );
 }
 
-/// Demo "processing" dialog: shows a few steps and closes itself.
-class _FakeProcessing extends StatefulWidget {
-  const _FakeProcessing();
-  @override
-  State<_FakeProcessing> createState() => _FakeProcessingState();
-}
-
-class _FakeProcessingState extends State<_FakeProcessing> {
-  static const _steps = [
-    'Uploading video…',
-    'Extracting frames…',
-    'Estimating camera positions…',
-    'Building 3D model…',
-    'Applying textures…',
-  ];
-  int _i = 0;
-  Timer? _t;
-
-  @override
-  void initState() {
-    super.initState();
-    _t = Timer.periodic(const Duration(milliseconds: 1300), (t) {
-      if (!mounted) return;
-      if (_i >= _steps.length - 1) {
-        t.cancel();
-        Navigator.pop(context);
-      } else {
-        setState(() => _i++);
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _t?.cancel();
-    super.dispose();
-  }
-
+/// Real 3D build progress (0-100) while the server works.
+class _Progress3D extends StatelessWidget {
+  final ValueNotifier<int> prog;
+  const _Progress3D(this.prog);
   @override
   Widget build(BuildContext context) => PopScope(
         canPop: false,
         child: AlertDialog(
           title: const Text('Building 3D model'),
-          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            LinearProgressIndicator(value: (_i + 1) / _steps.length),
-            const SizedBox(height: 16),
-            Text(_steps[_i]),
-          ]),
+          content: ValueListenableBuilder<int>(
+            valueListenable: prog,
+            builder: (_, v, __) => Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              LinearProgressIndicator(value: v == 0 ? null : v / 100),
+              const SizedBox(height: 16),
+              Text(v == 0 ? 'Uploading & starting…' : 'Processing… $v%'),
+              const SizedBox(height: 8),
+              const Text('This can take 1-3 minutes', style: TextStyle(fontSize: 12, color: Color(0xFF5A6785))),
+            ]),
+          ),
         ),
       );
 }

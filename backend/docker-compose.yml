@@ -12,6 +12,8 @@ services:
       DATABASE_URL: postgres://postgres:postgres@db:5432/hometwin?sslmode=disable
       JWT_SECRET: change-me-in-production
       MESHY_API_KEY: ${MESHY_API_KEY:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+      TRIPO_API_KEY: ${TRIPO_API_KEY:-}
     ports: ["8080:8080"]
     restart: on-failure
     depends_on: [db]

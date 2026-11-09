@@ -119,6 +119,10 @@ class _AddFormState extends State<AddForm> {
   }
 
   Future<void> _save() async {
+    if (widget.path == 'assets' && (_ctl['name']?.text.trim().isEmpty ?? true)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Device name is required')));
+      return;
+    }
     setState(() => _busy = true);
     try {
       for (final f in widget.fields) {

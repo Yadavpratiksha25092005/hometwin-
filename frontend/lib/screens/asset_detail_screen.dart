@@ -151,7 +151,6 @@ class _AssetDetailScreenState extends State<AssetDetailScreen> {
             _stat(_money(a['price']), 'Purchase price'),
           ]),
           const Divider(height: 24),
-          _field('Category', a['category']),
           _field('Room', a['room']),
           _field('Serial No', a['serial_no']),
           _field('Purchased', a['purchase_date'] == null ? null : _date(a['purchase_date'])),

@@ -21,8 +21,19 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
   // floating house in the background, moving grid + shimmer in the hero card, orbit in the banner.
   late final AnimationController _anim = AnimationController(vsync: this, duration: const Duration(seconds: 8))..repeat();
 
+  void _onName() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    Api.nameN.addListener(_onName);
+  }
+
   @override
   void dispose() {
+    Api.nameN.removeListener(_onName);
     _anim.dispose();
     super.dispose();
   }
@@ -39,11 +50,6 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
 
   late final Future<List<dynamic>> _rem = Api.reminders();
   late Future<int> _unread = Notifications.unreadCount();
-  late final Future<List<int>> _counts = Future.wait([
-    Api.list('assets').then((l) => l.length),
-    Api.list('warranties').then((l) => l.length),
-    Api.list('tasks').then((l) => l.length),
-  ]);
 
   String get _greeting {
     final h = DateTime.now().hour;
@@ -70,7 +76,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
     final name = (Api.userName ?? '').trim();
     return Container(
       decoration: const BoxDecoration(
-        gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.center, colors: [Color(0xFFE9E1FF), kBg]),
+        gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.center, colors: [Color(0xFFF1EEFB), kBg]),
       ),
       child: Stack(children: [
         // soft floating house + drifting glow in the background
@@ -87,7 +93,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
               Container(
                 width: 260,
                 height: 260,
-                decoration: BoxDecoration(shape: BoxShape.circle, gradient: RadialGradient(colors: [kLavender.withValues(alpha: 0.22), kLavender.withValues(alpha: 0)])),
+                decoration: BoxDecoration(shape: BoxShape.circle, gradient: RadialGradient(colors: [kLavender.withValues(alpha: 0.10), kLavender.withValues(alpha: 0)])),
               ),
               dy: 18,
               dx: 14,
@@ -106,12 +112,8 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
             _in(1, _greetingBlock(name)),
             const SizedBox(height: 16),
             _in(2, _hero()),
-            const SizedBox(height: 16),
-            _in(3, _stats()),
-            const SizedBox(height: 16),
-            _in(4, _banner()),
-            const SizedBox(height: 22),
-            _in(5, Row(children: [
+            const SizedBox(height: 18),
+            _in(3, Row(children: [
               Expanded(child: _section('Quick Actions')),
               TextButton.icon(
                 onPressed: _seeAll,
@@ -122,7 +124,9 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
               ),
             ])),
             const SizedBox(height: 6),
-            _in(5, _quickActions()),
+            _in(3, _quickActions()),
+            const SizedBox(height: 16),
+            _in(4, _banner()),
             const SizedBox(height: 22),
             _in(6, _section('Upcoming Reminders')),
             const SizedBox(height: 10),
@@ -203,17 +207,17 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
       ]);
 
   Widget _greetingBlock(String name) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('$_greeting,', style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w500, color: kNavy, height: 1.15)),
+        Text('$_greeting,', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500, color: _grey, height: 1.2)),
         Row(children: [
           Flexible(
             child: Text(name.isEmpty ? 'there' : name[0].toUpperCase() + name.substring(1),
-                maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 38, fontWeight: FontWeight.w800, color: kNavy, height: 1.15)),
+                maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: kNavy, height: 1.2)),
           ),
           const SizedBox(width: 8),
-          const Text('👋', style: TextStyle(fontSize: 32)),
+          const Text('👋', style: TextStyle(fontSize: 24)),
         ]),
         const SizedBox(height: 6),
-        const Text('Your home is healthier, smarter and more beautiful!', style: TextStyle(color: _grey, height: 1.3)),
+        const Text('Your home is healthier, smarter and more beautiful!', style: TextStyle(fontSize: 13, color: _grey, height: 1.3)),
         const SizedBox(height: 10),
         Container(
           width: 92,
@@ -303,55 +307,6 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
               ]),
             ),
           ]),
-        ),
-      );
-
-  // ------------------------------------------------------------------ stats
-
-  Widget _stats() => FutureBuilder<List<int>>(
-        future: _counts,
-        builder: (c, s) {
-          final v = s.data ?? [0, 0, 0];
-          return Row(children: [
-            _stat(Icons.view_in_ar_rounded, const [Color(0xFF60A5FA), Color(0xFF2563EB)], '${v[0]}', 'Assets', const [Color(0xFFFFFFFF), Color(0xFFE8F0FF)], 1),
-            const SizedBox(width: 10),
-            _stat(Icons.verified_user_rounded, const [Color(0xFF34D399), Color(0xFF059669)], '${v[1]}', 'Warranties', const [Color(0xFFFFFFFF), Color(0xFFE5F7EC)], 3),
-            const SizedBox(width: 10),
-            _stat(Icons.assignment_turned_in_rounded, const [Color(0xFF8B5CF6), Color(0xFF5B2FD0)], '${v[2]}', 'Tasks', const [Color(0xFFFFFFFF), Color(0xFFEDE7FF)], 4),
-          ]);
-        },
-      );
-
-  // Vertical layout => no horizontal overflow on narrow phones.
-  Widget _stat(IconData icon, List<Color> iconGrad, String n, String label, List<Color> bg, int tab) => Expanded(
-        child: InkWell(
-          borderRadius: BorderRadius.circular(22),
-          onTap: () => tab == 1 ? widget.goTab(1) : widget.onMaintenance(tab == 3 ? 2 : 0),
-          child: Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: bg),
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: Colors.white),
-              boxShadow: _shadow(0.08),
-            ),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(14),
-                  gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: iconGrad),
-                  boxShadow: [BoxShadow(color: iconGrad.last.withValues(alpha: 0.30), blurRadius: 10, offset: const Offset(0, 4))],
-                ),
-                child: Icon(icon, size: 24, color: Colors.white),
-              ),
-              const SizedBox(height: 14),
-              Text(n, style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: kNavy, height: 1)),
-              const SizedBox(height: 4),
-              Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: _grey)),
-            ]),
-          ),
         ),
       );
 
@@ -631,7 +586,7 @@ class _HouseArtPainter extends CustomPainter {
     final shader = LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
-      colors: [kLavender.withValues(alpha: 0.30), kBlue.withValues(alpha: 0.11)],
+      colors: [kLavender.withValues(alpha: 0.17), kBlue.withValues(alpha: 0.06)],
     ).createShader(Offset.zero & s);
     final fill = Paint()..shader = shader;
 
