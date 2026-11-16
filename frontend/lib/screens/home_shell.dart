@@ -36,6 +36,7 @@ class _HomeShellState extends State<HomeShell> {
       await Notifications.requestPermission();
       await Notifications.sync();
     }
+    await Notifications.registerPush();
   }
 
   void _push(Widget w) => Navigator.push(context, MaterialPageRoute(builder: (_) => w));

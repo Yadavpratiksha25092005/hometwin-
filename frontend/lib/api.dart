@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -48,6 +49,9 @@ class Api {
   static Future<void> logout() async {
     final p = await _p;
     _token = null;
+    try {
+      await GoogleSignIn().signOut(); // so the Google account picker shows again next time
+    } catch (_) {}
     await Notifications.cancelAll();
     await p.remove('token');
     await p.remove('loggedIn');
@@ -90,6 +94,12 @@ class Api {
     final u = _users(p)[email.trim().toLowerCase()];
     if (u == null || u['pass'] != pass) throw Exception('Incorrect email or password');
     await _start(p, u['name']);
+  }
+
+  /// Google login: the Google ID token is verified by the backend (/api/auth/google).
+  static Future<void> googleLogin(String idToken) async {
+    if (!remote) throw Exception('Google login needs the server (kApiUrl in lib/config.dart)');
+    return _remoteAuth('/api/auth/google', {'idToken': idToken});
   }
 
   /// Changes the display name. Returns true when it was saved on the server (or in demo mode),
@@ -322,6 +332,18 @@ class Api {
   /// {status: processing|ready|failed, progress: 0-100, model_url: '/files/x.glb', error: ''}
   static Future<Map<String, dynamic>> furnitureStatus(String id) async =>
       Map<String, dynamic>.from(await _req('GET', '/api/furniture/3d/$id') as Map);
+
+  /// Sends this device's Firebase push token to the backend so it can push reminders
+  /// even when the app isn't open. Fails silently (no internet, old server, etc.) —
+  /// push is a bonus on top of local reminders, never required for the app to work.
+  static Future<void> registerDeviceToken(String token) async {
+    if (!remote) return;
+    try {
+      await _req('POST', '/api/device-token', body: {'token': token});
+    } catch (e) {
+      debugPrint('registerDeviceToken failed: $e');
+    }
+  }
 
   static Future<List<dynamic>> reminders() async {
     if (remote) return List<dynamic>.from(await _req('GET', '/api/reminders') as List);

@@ -54,10 +54,15 @@ func main() {
 	a := &App{db: pool, secret: []byte(env("JWT_SECRET", "change-me"))}
 	os.MkdirAll("uploads", 0o755)
 
+	// Push notifications (Firebase Cloud Messaging). No-op if FIREBASE_PROJECT_ID /
+	// FIREBASE_CREDENTIALS_JSON aren't set — see push.go for setup instructions.
+	go runPushScheduler(ctx, pool)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("POST /api/auth/register", a.register)
 	mux.HandleFunc("POST /api/auth/login", a.login)
+	mux.HandleFunc("POST /api/auth/google", a.googleLogin)
 	mux.Handle("GET /files/", http.StripPrefix("/files/", http.FileServer(http.Dir("uploads"))))
 	mux.HandleFunc("POST /api/upload", a.protect(a.upload))
 	mux.HandleFunc("GET /api/reminders", a.protect(a.reminders))

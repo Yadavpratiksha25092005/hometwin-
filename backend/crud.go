@@ -193,6 +193,9 @@ func (a *App) report(w http.ResponseWriter, r *http.Request, uid int64) {
 func (a *App) deviceToken(w http.ResponseWriter, r *http.Request, uid int64) {
 	var b struct{ Token string }
 	json.NewDecoder(r.Body).Decode(&b)
-	a.db.Exec(r.Context(), `INSERT INTO device_tokens(user_id,token) VALUES($1,$2) ON CONFLICT DO NOTHING`, uid, b.Token)
+	tag, err := a.db.Exec(r.Context(), `INSERT INTO device_tokens(user_id,token) VALUES($1,$2) ON CONFLICT DO NOTHING`, uid, b.Token)
+	if err == nil && tag.RowsAffected() == 1 && b.Token != "" {
+		welcomeToken(a.db, uid, b.Token) // first time this phone registers (first login on it)
+	}
 	w.WriteHeader(204)
 }

@@ -17,11 +17,15 @@ dependencies:
   path_provider: ^2.1.3
   model_viewer_plus: ^1.7.1 # .glb 3D viewer (room scan + import)
   flutter_local_notifications: ^22.3.3 # warranty / maintenance reminders
+  firebase_core: ^3.8.0 # push notifications
+  firebase_messaging: ^15.1.6 # push notifications (FCM)
   timezone: any
   pdf: any # home report PDF
   google_fonts: ^6.2.1 # Inter font
   image_picker: ^1.1.2 # room photo + furniture photos (Room Designer)
   google_mlkit_subject_segmentation: ^0.2.0 # removes the background of furniture photos (Android, on-device)
+  google_sign_in: 6.2.2
+  flutter_svg: ^2.4.0
 
 dev_dependencies:
   flutter_test:

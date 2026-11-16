@@ -106,73 +106,234 @@ List<int> triangulate(List<List<double>> p) {
 
 // ------------------------------------------------------------------ auto-furniture
 
-/// Adds a simple, box-based furniture set sized to fit inside the room's bounding
-/// box, picked from [roomName] (falls back to a bedroom set, the app's main use case).
-/// Too-small rooms (e.g. a scanned closet or bathroom) are left empty.
+/// Furnishes the room with simple but detailed box-built furniture, chosen from [roomName]
+/// (kitchen, living room / hall / studio, office / study, bathroom, else a bedroom - the app's
+/// main use case). Every big piece gets a soft shadow on the floor. Too-small or L-shaped
+/// rooms are left empty.
 void _addAutoFurniture(
   RoomData r,
   String? roomName,
   int Function(_Mat) addMat,
   void Function(double cx, double cy, double cz, double hx, double hy, double hz, int mat, {double rotY}) addBox,
+  void Function(double x, double z, double hx, double hz, double mg) addShadow,
 ) {
   final xs = r.corners.map((c) => c[0]).toList(), zs = r.corners.map((c) => c[1]).toList();
   final minX = xs.reduce(math.min), maxX = xs.reduce(math.max);
   final minZ = zs.reduce(math.min), maxZ = zs.reduce(math.max);
-  final w = maxX - minX, d = maxZ - minZ;
-  if (w < 2.0 || d < 2.0 || r.area < 5.5) return; // too small/odd-shaped: leave it empty
+  final w = maxX - minX, d = maxZ - minZ, cx = (minX + maxX) / 2, height = r.height;
+  if (w < 2.0 || d < 2.0 || r.area < 5.5) return; // too small: leave it empty
   if (r.area < 0.95 * w * d) return; // L-shaped etc.: the furniture would stick out of the room
 
-  void bAt(double cx, double baseY, double cz, double hx, double hy, double hz, int mat, {double rotY = 0}) =>
-      addBox(cx, baseY + hy, cz, hx, hy, hz, mat, rotY: rotY);
+  final nm = (roomName ?? '').toLowerCase();
+  bool has(List<String> keys) => keys.any(nm.contains);
 
-  final name = (roomName ?? '').toLowerCase();
-  final nonBedroom =
-      ['kitchen', 'living', 'hall', 'lounge', 'office', 'study', 'studio', 'bath', 'wash', 'toilet', 'balcony'].any(name.contains);
+  int mat(String name, List<double> col, [double rough = 0.8, double metal = 0.0, List<double>? emit]) =>
+      addMat(_Mat(name, col, roughness: rough, metallic: metal, emissive: emit));
+  final woodD = mat('WoodDark', const [0.24, 0.14, 0.08, 1.0], 0.5);
+  final woodM = mat('WoodMid', const [0.55, 0.38, 0.22, 1.0], 0.5);
+  final woodL = mat('WoodLight', const [0.74, 0.57, 0.37, 1.0], 0.55);
+  final cream = mat('Cream', const [0.93, 0.90, 0.83, 1.0], 0.95);
+  final white = mat('PillowWhite', const [0.97, 0.97, 0.95, 1.0], 0.9);
+  final blue = mat('FabricBlue', const [0.20, 0.33, 0.55, 1.0], 0.85);
+  final grey = mat('FabricGrey', const [0.46, 0.47, 0.51, 1.0], 0.9);
+  final greyL = mat('FabricGreyLight', const [0.58, 0.59, 0.62, 1.0], 0.9);
+  final metal = mat('Metal', const [0.78, 0.79, 0.80, 1.0], 0.3, 0.9);
+  final black = mat('Black', const [0.06, 0.06, 0.07, 1.0], 0.3);
+  final leaf = mat('Leaf', const [0.22, 0.46, 0.22, 1.0], 0.8);
+  final pot = mat('Pot', const [0.70, 0.45, 0.30, 1.0], 0.7);
+  final shade = mat('LampShade', const [1.0, 0.92, 0.75, 1.0], 0.9, 0.0, const [0.9, 0.7, 0.4]);
+  final rugD = mat('RugDark', const [0.58, 0.47, 0.44, 1.0], 0.95);
+  final rugL = mat('RugLight', const [0.74, 0.63, 0.58, 1.0], 0.95);
+  final cab = mat('Cabinet', const [0.93, 0.93, 0.90, 1.0], 0.6);
+  final top = mat('Countertop', const [0.16, 0.16, 0.17, 1.0], 0.4);
+  final steel = mat('Steel', const [0.80, 0.82, 0.85, 1.0], 0.35, 0.8);
+  final seam = mat('Seam', const [0.35, 0.35, 0.35, 1.0], 0.8);
 
-  // Rug (every room type gets this small touch).
-  final rug = addMat(const _Mat('Rug', [0.74, 0.47, 0.44, 1.0], roughness: 0.95));
-
-  if (nonBedroom) {
-    bAt((minX + maxX) / 2, 0.001, (minZ + maxZ) / 2, math.min(1.4, w * 0.3), 0.01, math.min(1.0, d * 0.25), rug);
-    return;
+  /// Box standing on height [by] (its bottom), centre (x, z), half-sizes (hx, hy, hz).
+  void box(int m, double x, double by, double z, double hx, double hy, double hz, [double rot = 0]) =>
+      addBox(x, by + hy, z, hx, hy, hz, m, rotY: rot);
+  void shadow(double x, double z, double hx, double hz, [double mg = 0.16]) => addShadow(x, z, hx, hz, mg);
+  void rug(double x, double z, double hx, double hz) {
+    final rx = math.min(hx, (maxX - minX) / 2 - 0.1);
+    final rz = math.max(math.min(z, maxZ - hz - 0.05), minZ + hz + 0.05);
+    box(rugD, x, 0.001, rz, rx, 0.008, hz);
+    box(rugL, x, 0.009, rz, rx - 0.08, 0.006, hz - 0.08);
   }
 
-  // ---- bedroom set -------------------------------------------------------
-  final bedFrame = addMat(const _Mat('BedFrame', [0.24, 0.14, 0.08, 1.0], roughness: 0.5));
-  final mattress = addMat(const _Mat('Mattress', [0.93, 0.90, 0.82, 1.0], roughness: 0.95));
-  final blanket = addMat(const _Mat('Blanket', [0.20, 0.33, 0.55, 1.0], roughness: 0.85));
-  final pillow = addMat(const _Mat('Pillow', [0.97, 0.97, 0.95, 1.0], roughness: 0.9));
-  final nightstandWood = addMat(const _Mat('NightstandWood', [0.42, 0.28, 0.16, 1.0], roughness: 0.55));
-  final wardrobeWood = addMat(const _Mat('WardrobeWood', [0.55, 0.38, 0.22, 1.0], roughness: 0.5));
-
-  final cx = (minX + maxX) / 2;
-  final bedW = math.min(1.6, w * 0.6); // along x
-  final bedL = math.min(2.0, d * 0.55); // along z
-  final gap = 0.10;
-  final headZ = minZ + gap; // wall-side edge of the bed
-  final bedCenterZ = headZ + bedL / 2;
-
-  bAt(cx, 0, bedCenterZ, bedW / 2, 0.125, bedL / 2, bedFrame); // frame/base
-  bAt(cx, 0.25, bedCenterZ, bedW / 2 - 0.03, 0.125, bedL / 2 - 0.03, mattress); // mattress
-  bAt(cx, 0, headZ + 0.04, bedW / 2 + 0.03, 0.5, 0.04, bedFrame); // headboard
-  bAt(cx, 0.5, bedCenterZ + bedL * 0.12, bedW / 2 - 0.02, 0.05, bedL * 0.33, blanket); // blanket (foot half)
-  bAt(cx - bedW / 4, 0.5, headZ + 0.26, bedW / 8, 0.08, 0.18, pillow);
-  bAt(cx + bedW / 4, 0.5, headZ + 0.26, bedW / 8, 0.08, 0.18, pillow);
-
-  // Nightstands either side of the headboard, if there's room.
-  final nsX = bedW / 2 + 0.25;
-  if (cx - nsX - 0.2 > minX + 0.1) bAt(cx - nsX, 0, headZ + 0.2, 0.2, 0.25, 0.2, nightstandWood);
-  if (cx + nsX + 0.2 < maxX - 0.1) bAt(cx + nsX, 0, headZ + 0.2, 0.2, 0.25, 0.2, nightstandWood);
-
-  // Wardrobe along a side wall, opposite the bed's foot end.
-  final wardrobeLen = math.min(1.6, d * 0.5);
-  final wardrobeH = math.min(2.0, r.height - 0.15);
-  if (wardrobeLen > 0.6 && (maxX - minX) > bedW + 1.2) {
-    bAt(minX + 0.3, 0, maxZ - 0.25 - wardrobeLen / 2, 0.3, wardrobeH / 2, wardrobeLen / 2, wardrobeWood);
+  void plant(double x, double z) {
+    box(pot, x, 0, z, 0.14, 0.15, 0.14);
+    box(leaf, x, 0.3, z, 0.22, 0.28, 0.22);
+    box(leaf, x, 0.3, z, 0.22, 0.28, 0.22, 0.785);
+    shadow(x, z, 0.2, 0.2, 0.1);
   }
 
-  // Rug in front of the bed.
-  bAt(cx, 0.001, bedCenterZ + bedL / 2 + 0.35, bedW / 2 + 0.15, 0.01, 0.45, rug);
+  if (has(['kitchen'])) {
+    final lk = math.min(w - 0.7, 4.2), x0 = minX + 0.1, xk = x0 + lk / 2, zk = minZ + 0.4;
+    box(cab, xk, 0, zk, lk / 2, 0.44, 0.3);
+    shadow(xk, zk, lk / 2, 0.3, 0.12);
+    box(top, xk, 0.88, zk, lk / 2 + 0.01, 0.02, 0.32);
+    final n = math.max((lk / 0.6).floor(), 1);
+    for (var i = 1; i < n; i++) {
+      box(seam, x0 + i * lk / n, 0.05, zk + 0.301, 0.004, 0.38, 0.002); // cabinet door gaps
+    }
+    for (var i = 0; i < n; i++) {
+      box(metal, x0 + (i + 0.5) * lk / n + 0.18, 0.7, zk + 0.31, 0.012, 0.05, 0.006); // handles
+    }
+    if (height >= 2.4) {
+      box(cab, xk, 1.45, minZ + 0.275, lk / 2, 0.3, 0.175); // wall cabinets
+      for (var i = 1; i < n; i++) {
+        box(seam, x0 + i * lk / n, 1.18, minZ + 0.452, 0.004, 0.28, 0.002);
+      }
+    }
+    box(steel, x0 + lk * 0.30, 0.9, zk, 0.25, 0.005, 0.2); // sink
+    box(metal, x0 + lk * 0.30, 0.92, zk - 0.2, 0.02, 0.1, 0.02); // tap
+    box(black, x0 + lk * 0.70, 0.9, zk, 0.3, 0.005, 0.25); // hob
+    for (final o in const [
+      [-0.12, -0.08],
+      [0.12, -0.08],
+      [-0.12, 0.08],
+      [0.12, 0.08]
+    ]) {
+      box(seam, x0 + lk * 0.70 + o[0], 0.905, zk + o[1], 0.05, 0.004, 0.05);
+    }
+    final fx = maxX - 0.45; // fridge
+    box(steel, fx, 0, minZ + 0.45, 0.35, 0.9, 0.35);
+    shadow(fx, minZ + 0.45, 0.35, 0.35, 0.12);
+    box(seam, fx, 0.9, minZ + 0.805, 0.34, 0.003, 0.002);
+    box(metal, fx - 0.26, 0.9, minZ + 0.82, 0.012, 0.25, 0.012);
+    if (d >= 3.4 && w >= 3) {
+      final tz = maxZ - 1.0; // dining table + 4 stools
+      box(woodL, cx, 0.72, tz, 0.6, 0.025, 0.4);
+      for (final sx in const [-1, 1]) {
+        for (final sz in const [-1, 1]) {
+          box(woodD, cx + sx * 0.55, 0, tz + sz * 0.35, 0.03, 0.36, 0.03);
+        }
+      }
+      shadow(cx, tz, 0.6, 0.4, 0.14);
+      for (final sx in const [-1, 1]) {
+        for (final sz in const [-1, 1]) {
+          final px = cx + sx * 0.3, pz = tz + sz * 0.62;
+          box(woodM, px, 0.43, pz, 0.19, 0.02, 0.19);
+          box(woodM, px, 0, pz, 0.02, 0.21, 0.02);
+          shadow(px, pz, 0.19, 0.19, 0.08);
+        }
+      }
+    }
+    if (d >= 3) plant(maxX - 0.3, maxZ - 0.3);
+  } else if (has(['living', 'hall', 'lounge', 'studio'])) {
+    final sl = math.min(2.2, w * 0.55), zc = minZ + 0.6, dd = 0.45; // sofa length, centre z, half depth
+    for (final sx in const [-1, 1]) {
+      for (final sz in const [-1, 1]) {
+        box(woodD, cx + sx * (sl / 2 - 0.08), 0, zc + sz * (dd - 0.08), 0.03, 0.08, 0.03); // legs
+      }
+    }
+    box(grey, cx, 0.08, zc, sl / 2, 0.17, dd);
+    shadow(cx, zc, sl / 2, dd, 0.16);
+    box(grey, cx, 0.25, minZ + 0.22, sl / 2, 0.30, 0.12); // back
+    for (final sx in const [-1, 1]) {
+      box(grey, cx + sx * (sl / 2 - 0.1), 0.25, zc, 0.1, 0.2, dd); // arms
+    }
+    for (var i = 0; i < 3; i++) {
+      final xi = cx + (i - 1) * (sl - 0.4) / 3;
+      box(greyL, xi, 0.25, zc + 0.07, (sl - 0.4) / 6 - 0.01, 0.08, 0.34); // seat cushions
+      box(greyL, xi, 0.43, minZ + 0.38, (sl - 0.4) / 6 - 0.02, 0.17, 0.07); // back cushions
+    }
+    box(blue, cx - sl / 2 + 0.35, 0.33, zc + 0.05, 0.17, 0.17, 0.07, 0.3); // scatter cushion
+    final tz = math.min(zc + 1.25, maxZ - 0.7); // coffee table
+    box(woodL, cx, 0.36, tz, 0.55, 0.025, 0.3);
+    for (final sx in const [-1, 1]) {
+      for (final sz in const [-1, 1]) {
+        box(woodD, cx + sx * 0.5, 0, tz + sz * 0.25, 0.025, 0.18, 0.025);
+      }
+    }
+    shadow(cx, tz, 0.55, 0.3, 0.12);
+    rug(cx, (zc + tz) / 2 + 0.1, sl / 2 + 0.15, (tz - zc) / 2 + 0.75);
+    if (d >= 3.4) {
+      final uz = maxZ - 0.28, uw = math.min(1.0, w * 0.3); // TV unit + TV
+      box(woodD, cx, 0, uz, uw, 0.22, 0.2);
+      shadow(cx, uz, uw, 0.2, 0.12);
+      box(black, cx, 0.46, uz, 0.62, 0.34, 0.02);
+      box(black, cx, 0.44, uz, 0.12, 0.03, 0.1);
+    }
+    plant(maxX - 0.3, minZ + 0.3);
+  } else if (has(['office', 'study'])) {
+    final zd = minZ + 0.5;
+    box(woodL, cx, 0.72, zd, 0.8, 0.025, 0.35); // desk
+    for (final sx in const [-1, 1]) {
+      box(woodM, cx + sx * 0.75, 0, zd, 0.025, 0.36, 0.33);
+    }
+    shadow(cx, zd, 0.8, 0.35, 0.14);
+    box(black, cx, 0.745, zd - 0.1, 0.28, 0.17, 0.012); // monitor
+    box(black, cx, 0.745, zd - 0.1, 0.03, 0.02, 0.04);
+    box(black, cx, 0.745, zd + 0.12, 0.18, 0.008, 0.07); // keyboard
+    final chz = zd + 0.85; // chair
+    box(grey, cx, 0.45, chz, 0.22, 0.03, 0.22);
+    box(grey, cx, 0.5, chz - 0.2, 0.22, 0.25, 0.03);
+    box(black, cx, 0.0, chz, 0.03, 0.22, 0.03);
+    box(black, cx, 0, chz, 0.22, 0.03, 0.22);
+    shadow(cx, chz, 0.25, 0.25, 0.1);
+    final bx = minX + 0.22, bz = (minZ + maxZ) / 2; // bookshelf
+    box(woodD, bx, 0, bz, 0.2, 1.0, 0.7);
+    shadow(bx, bz, 0.2, 0.7, 0.1);
+    final books = [blue, leaf, woodM, cream];
+    for (var k = 0; k < books.length; k++) {
+      for (var j = 0; j < 4; j++) {
+        box(books[k], bx + 0.205, 0.12 + k * 0.45, bz - 0.55 + j * 0.28, 0.003, 0.2, 0.1);
+      }
+    }
+    rug(cx, chz - 0.2, 0.9, 0.7);
+    plant(maxX - 0.3, maxZ - 0.3);
+  } else if (has(['bath', 'wash', 'toilet', 'balcony'])) {
+    rug(cx, (minZ + maxZ) / 2, math.min(0.8, w * 0.25), math.min(0.5, d * 0.2));
+    plant(maxX - 0.3, maxZ - 0.3);
+  } else {
+    // ---- bedroom (default)
+    final bedW = math.min(1.6, w * 0.6), bedL = math.min(2.0, d * 0.55);
+    final headZ = minZ + 0.1, bcz = headZ + bedL / 2;
+    for (final sx in const [-1, 1]) {
+      for (final sz in const [-1, 1]) {
+        box(woodD, cx + sx * (bedW / 2 - 0.05), 0, bcz + sz * (bedL / 2 - 0.05), 0.03, 0.08, 0.03); // legs
+      }
+    }
+    box(woodD, cx, 0.08, bcz, bedW / 2, 0.1, bedL / 2); // frame
+    shadow(cx, bcz, bedW / 2, bedL / 2, 0.2);
+    box(cream, cx, 0.28, bcz, bedW / 2 - 0.03, 0.11, bedL / 2 - 0.03); // mattress
+    box(blue, cx, 0.5, bcz + bedL * 0.14, bedW / 2 - 0.02, 0.05, bedL * 0.36); // duvet
+    for (final sx in const [-1, 1]) {
+      box(blue, cx + sx * (bedW / 2 - 0.025), 0.30, bcz + bedL * 0.14, 0.012, 0.22, bedL * 0.36); // duvet sides
+    }
+    box(greyL, cx, 0.55, bcz + bedL * 0.33, bedW / 2 - 0.05, 0.015, 0.17); // throw
+    box(woodD, cx, 0.08, headZ + 0.04, bedW / 2 + 0.04, 0.5, 0.04); // headboard
+    box(woodM, cx, 0.3, headZ + 0.085, bedW / 2 - 0.04, 0.3, 0.01);
+    for (final sx in const [-1, 1]) {
+      box(white, cx + sx * bedW / 4, 0.5, headZ + 0.28, bedW / 8 + 0.03, 0.07, 0.17); // pillows
+    }
+    final nsx = bedW / 2 + 0.28;
+    for (final sx in const [-1, 1]) {
+      final x = cx + sx * nsx;
+      if (sx < 0 && !(x - 0.22 > minX + 0.05)) continue;
+      if (sx > 0 && !(x + 0.22 < maxX - 0.05)) continue;
+      box(woodM, x, 0, headZ + 0.2, 0.22, 0.26, 0.2); // nightstand
+      box(woodD, x, 0.52, headZ + 0.2, 0.24, 0.015, 0.22);
+      shadow(x, headZ + 0.2, 0.22, 0.2, 0.1);
+      box(woodD, x, 0.30, headZ + 0.405, 0.18, 0.1, 0.004); // drawer front
+      box(metal, x, 0.34, headZ + 0.41, 0.05, 0.012, 0.008);
+      box(metal, x, 0.535, headZ + 0.2, 0.03, 0.07, 0.03); // lamp
+      box(shade, x, 0.6, headZ + 0.2, 0.09, 0.07, 0.09);
+    }
+    final wl = math.min(1.6, d * 0.5), wh = math.min(2.0, height - 0.15);
+    if (wl > 0.6 && w > bedW + 1.2) {
+      final wz = maxZ - 0.25 - wl / 2; // wardrobe on the left wall
+      box(woodM, minX + 0.3, 0, wz, 0.3, wh / 2, wl / 2);
+      shadow(minX + 0.3, wz, 0.3, wl / 2, 0.12);
+      box(seam, minX + 0.601, 0.05, wz, 0.002, wh / 2 - 0.05, 0.004);
+      for (final sz in const [-1, 1]) {
+        box(metal, minX + 0.61, wh / 2, wz + sz * 0.1, 0.01, 0.1, 0.01);
+      }
+    }
+    rug(cx, bcz + bedL / 2 + 0.15, bedW / 2 + 0.35, 0.8);
+    plant(maxX - 0.3, maxZ - 0.3);
+  }
 }
 
 // ------------------------------------------------------------------ GLB
@@ -189,7 +350,8 @@ class _Mat {
   final List<double> color; // rgba 0..1
   final double metallic, roughness;
   final bool doubleSided, blend, textured;
-  const _Mat(this.name, this.color, {this.metallic = 0.0, this.roughness = 0.9, this.doubleSided = true, this.blend = false, this.textured = false});
+  final List<double>? emissive; // glowing colour (lamp shades)
+  const _Mat(this.name, this.color, {this.metallic = 0.0, this.roughness = 0.9, this.doubleSided = true, this.blend = false, this.textured = false, this.emissive});
 }
 
 /// Vertex data of everything that uses one material.
@@ -381,6 +543,29 @@ Uint8List _buildGlb(List<MapEntry<RoomData, String?>> rooms) {
       ], col: [dark, dark, clear, clear]);
     }
 
+    /// Soft shadow on the floor around a piece of furniture: a ring that fades out, plus a filled middle.
+    void addShadow(double x, double z, double hx, double hz, double mg) {
+      const dark = [0.0, 0.0, 0.0, 0.42], clear = [0.0, 0.0, 0.0, 0.0];
+      const corner = [
+        [-1, -1],
+        [1, -1],
+        [1, 1],
+        [-1, 1]
+      ];
+      List<double> out(double px, double pz) => [px + (px > x ? mg : -mg), 0.004, pz + (pz > z ? mg : -mg)];
+      for (var k = 0; k < 4; k++) {
+        final a = corner[k], b = corner[(k + 1) % 4];
+        final i0 = [x + a[0] * hx, 0.004, z + a[1] * hz], i1 = [x + b[0] * hx, 0.004, z + b[1] * hz];
+        quad(ao, [i0, i1, out(i1[0], i1[2]), out(i0[0], i0[2])], col: [dark, dark, clear, clear]);
+      }
+      quad(ao, [
+        [x - hx, 0.004, z - hz],
+        [x + hx, 0.004, z - hz],
+        [x + hx, 0.004, z + hz],
+        [x - hx, 0.004, z + hz],
+      ], col: [dark, dark, dark, dark]);
+    }
+
     // door + windows painted on the walls (same rule as the 2D floor plan:
     // door on the longest wall, windows on the next longest walls)
     void opening(_Wall w, double tFrac, double length, bool isDoor) {
@@ -406,13 +591,22 @@ Uint8List _buildGlb(List<MapEntry<RoomData, String?>> rooms) {
 
     if (ws.isNotEmpty) {
       final order = List<int>.generate(ws.length, (k) => k)..sort((a, b) => ws[b].len.compareTo(ws[a].len));
-      opening(ws[order.first], 0.28, 0.9, true);
-      for (final k in order.skip(1).take(n >= 4 ? 2 : 1)) {
+      final zmin = c.map((p) => p[1]).reduce(math.min);
+      // the furniture stands along the wall with the smallest z, so the door is never put there
+      bool onTop(int k) {
+        final w = ws[k];
+        return (w.az - zmin).abs() < 0.05 && ((w.az + w.uz * w.len) - zmin).abs() < 0.05;
+      }
+
+      final candidates = order.where((k) => !onTop(k)).toList();
+      final doorK = candidates.isNotEmpty ? candidates.first : order.first;
+      opening(ws[doorK], 0.12, 0.9, true);
+      for (final k in order.where((k) => k != doorK).take(n >= 4 ? 2 : 1)) {
         opening(ws[k], 0.5, 1.3, false);
       }
     }
 
-    _addAutoFurniture(r, e.value, addMat, addBox);
+    _addAutoFurniture(r, e.value, addMat, addBox, addShadow);
   }
 
   // ------------------------------------------------------------ write the .glb
@@ -476,6 +670,7 @@ Uint8List _buildGlb(List<MapEntry<RoomData, String?>> rooms) {
         'name': mat.name,
         'doubleSided': mat.doubleSided,
         if (mat.blend) 'alphaMode': 'BLEND',
+        if (mat.emissive != null) 'emissiveFactor': mat.emissive,
         'pbrMetallicRoughness': {
           'baseColorFactor': mat.color,
           'metallicFactor': mat.metallic,

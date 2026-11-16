@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "690646162387",
+    "project_id": "hometwin-a74cc",
+    "storage_bucket": "hometwin-a74cc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:690646162387:android:233386c4b83d376b88ed26",
+        "android_client_info": {
+          "package_name": "com.hometwin.home_digital_twin"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "690646162387-8mchqf4h5sprbrk9suelpurpi5op8v3a.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.hometwin.home_digital_twin",
+            "certificate_hash": "fcd553a6000d2c778a6770494d38cac3adb4f679"
+          }
+        },
+        {
+          "client_id": "690646162387-1i02fqiqpfpi30f9rni7tlom0s18c8ra.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBUIHC_Gmpd76W7NaNDs_CxvYvFIvgi64c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "690646162387-1i02fqiqpfpi30f9rni7tlom0s18c8ra.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

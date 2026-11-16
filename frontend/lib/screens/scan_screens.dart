@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -171,6 +172,11 @@ class _ScanScreenState extends State<ScanScreen> {
 
   /// No camera needed: enter length x width x height to get an instant 3D room.
   Future<void> _quickRoom() async {
+    if (kIsWeb) {
+      // the 3D room file is saved on the device, which a browser cannot do
+      _snack('Creating a room works in the Android app, not in the browser. Run the app on your phone or an emulator.');
+      return;
+    }
     final n = (await Api.list('scans')).length + 1;
     if (!mounted) return;
     final nameC = TextEditingController(text: 'Room $n');

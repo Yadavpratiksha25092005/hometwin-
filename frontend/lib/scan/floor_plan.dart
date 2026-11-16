@@ -7,7 +7,7 @@ import 'room_model.dart';
 /// wall lengths, area and a 1 m scale bar.
 ///
 /// Doors and windows are only drawn for looks (the scan does not know where they are):
-/// the door goes on the longest wall and windows on the next longest walls.
+/// the door goes on the longest wall that is not the top one, windows on the next longest walls.
 class FloorPlanPainter extends CustomPainter {
   final RoomData room;
   final bool showOpenings;
@@ -113,9 +113,13 @@ class FloorPlanPainter extends CustomPainter {
 
     // 3) openings: longest wall = door, next longest walls = windows
     final order = List<int>.generate(n, (i) => i)..sort((a, b) => room.walls[b].compareTo(room.walls[a]));
-    final doorWall = order.first;
+    // same rule as the 3D model: the furniture stands along the wall with the smallest z (top edge of
+    // the plan), so the door goes on another wall; windows go on the remaining longest walls
+    bool onTop(int i) => (pts[i][1] - minZ).abs() < 0.05 && (pts[(i + 1) % n][1] - minZ).abs() < 0.05;
+    final candidates = order.where((i) => !onTop(i)).toList();
+    final doorWall = candidates.isNotEmpty ? candidates.first : order.first;
     final windowWalls = <int>[
-      if (showOpenings) ...order.skip(1).take(n >= 4 ? 2 : 1),
+      if (showOpenings) ...order.where((i) => i != doorWall).take(n >= 4 ? 2 : 1),
     ];
     // (start, end) of an opening on wall i, centred at [t] (0..1) and [len] metres long
     (Offset, Offset)? gap(int i, double t, double len) {
@@ -127,7 +131,7 @@ class FloorPlanPainter extends CustomPainter {
       return (Offset.lerp(a, b, c - l / 2)!, Offset.lerp(a, b, c + l / 2)!);
     }
 
-    final door = showOpenings ? gap(doorWall, 0.28, 0.9) : null;
+    final door = showOpenings ? gap(doorWall, 0.12, 0.9) : null;
     final windows = <(Offset, Offset, int)>[
       for (final i in windowWalls)
         if (gap(i, 0.5, 1.3) case final g?) (g.$1, g.$2, i),

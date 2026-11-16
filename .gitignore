@@ -2,3 +2,8 @@
 frontend/android/.kotlin/
 frontend/.dart_tool/
 frontend/build/
+*.zip
+run.log
+.idea/
+*.iml
+.flutter-plugins-dependencies

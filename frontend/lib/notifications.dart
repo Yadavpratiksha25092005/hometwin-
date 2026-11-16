@@ -1,9 +1,18 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 import 'api.dart';
+
+/// Called when a push notification arrives while the app is fully closed / in the
+/// background. Must be a top-level (or static) function: the OS runs it in its own
+/// isolate. Firebase itself already shows the notification tray entry for a message
+/// that has a "notification" payload (which is all the backend sends), so there is
+/// nothing to do here beyond letting the plugin hand off to the OS.
+@pragma('vm:entry-point')
+Future<void> firebasePushBackgroundHandler(RemoteMessage message) async {}
 
 /// One upcoming reminder (a maintenance task or a warranty expiry).
 class Reminder {
@@ -55,6 +64,53 @@ class Notifications {
       ),
     );
     _ready = true;
+  }
+
+  // ---------- server push (Firebase Cloud Messaging) ----------
+  //
+  // Local reminders above only fire while the phone has had the app open recently enough
+  // to reschedule them. Push notifications are sent by the backend (see push.go) even when
+  // the app has been closed for days, as long as the server has a device token for this phone.
+  static bool _pushReady = false;
+
+  /// Asks for notification permission, gets this device's FCM token and sends it to the
+  /// backend, and makes sure a push that arrives while the app is open still shows a banner.
+  /// Safe to call repeatedly; does nothing in demo mode (no server to register the token with)
+  /// or on web/desktop. Requires `flutterfire configure` to have been run for this project
+  /// (see README) — without Firebase set up, FirebaseMessaging calls below throw and are
+  /// caught, so the app keeps working with local-only reminders.
+  static Future<void> registerPush() async {
+    if (kIsWeb || !Api.remote || _pushReady) return;
+    try {
+      final messaging = FirebaseMessaging.instance;
+      await messaging.requestPermission(alert: true, badge: true, sound: true);
+
+      final token = await messaging.getToken();
+      if (token != null) await Api.registerDeviceToken(token);
+      // Re-send whenever FCM rotates the token.
+      messaging.onTokenRefresh.listen((t) => Api.registerDeviceToken(t));
+
+      FirebaseMessaging.onBackgroundMessage(firebasePushBackgroundHandler);
+
+      // Android/iOS don't show a system notification for a push that arrives while the
+      // app is in the foreground, so surface it ourselves with the same local plugin
+      // used for scheduled reminders.
+      FirebaseMessaging.onMessage.listen((message) async {
+        final n = message.notification;
+        if (n == null) return;
+        await init();
+        await _plugin.show(
+          id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          title: n.title ?? 'Home Digital Twin',
+          body: n.body ?? '',
+          notificationDetails: _details,
+        );
+      });
+
+      _pushReady = true;
+    } catch (e) {
+      debugPrint('Notifications.registerPush skipped: $e');
+    }
   }
 
   static Future<bool> get enabled async =>

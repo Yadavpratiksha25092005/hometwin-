@@ -64,6 +64,7 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "invalid credentials")
 		return
 	}
+	welcomeUser(a.db, id, name)
 	t, _ := a.token(id)
 	writeJSON(w, 200, map[string]any{"token": t, "user": map[string]any{"id": id, "name": name, "email": b.Email}})
 }

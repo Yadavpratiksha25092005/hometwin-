@@ -14,9 +14,13 @@ services:
       MESHY_API_KEY: ${MESHY_API_KEY:-}
       HF_TOKEN: ${HF_TOKEN:-}
       TRIPO_API_KEY: ${TRIPO_API_KEY:-}
+      FIREBASE_PROJECT_ID: hometwin-a74cc
+      GOOGLE_APPLICATION_CREDENTIALS_FILE: /app/firebase-key.json
     ports: ["8080:8080"]
     restart: on-failure
     depends_on: [db]
-    volumes: [./uploads:/app/uploads]
+    volumes:
+      - ./uploads:/app/uploads
+      - ./firebase-key.json:/app/firebase-key.json:ro
 volumes:
   pgdata: {}
