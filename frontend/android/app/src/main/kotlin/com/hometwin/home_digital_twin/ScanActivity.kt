@@ -88,7 +88,7 @@ class ScanActivity : Activity(), GLSurfaceView.Renderer {
 
     @Volatile private var mode = Mode.FLOOR
     @Volatile private var floorY: Float? = null
-    @Volatile private var ceilingHeight: Float? = null
+    @Volatile private var ceilingHeight: Float? = 2.7f // default: no ceiling step needed
     @Volatile private var addRequested = false
     @Volatile private var measureRequested = false
     private val corners = CopyOnWriteArrayList<FloatArray>() // world [x, y(floor), z]
@@ -290,7 +290,7 @@ class ScanActivity : Activity(), GLSurfaceView.Renderer {
                 val last = corners.lastOrNull()
                 when {
                     centerHit == null -> toast("No floor found here. Point the crosshair at the ground, at a wall corner")
-                    last != null && dist2d(last, centerHit) < 0.15f -> toast("This corner is too close to the previous corner")
+                    last != null && dist2d(last, centerHit) < 0.8f -> toast("Corner too close to the previous one. Walk to the next real corner of the room")
                     else -> {
                         if (floorY == null) floorY = centerHit[1]
                         corners.add(centerHit)
@@ -449,10 +449,7 @@ class ScanActivity : Activity(), GLSurfaceView.Renderer {
         }
         btnC.setOnClickListener {
             if (mode == Mode.FLOOR) {
-                if (corners.size >= 3) {
-                    mode = Mode.CEILING
-                    uiRefresh()
-                }
+                if (corners.size >= 3) save()
             } else askHeight()
         }
 
@@ -479,11 +476,11 @@ class ScanActivity : Activity(), GLSurfaceView.Renderer {
             setPadding(0, 0, 0, dp(16))
         }
         val tips = listOf(
-            "📱  Move the camera slowly around the room",
-            "📐  Scan the walls, corners, floor and ceiling",
-            "➕  Walk to each corner and tap \"Add corner\"",
-            "🔄  Cover all areas — walk the full room from different angles",
-            "✅  We'll show your progress as you go",
+            "📱  Move the phone slowly until the floor is found",
+            "📍  Point the crosshair at a floor corner, tap \"Add corner\"",
+            "➕  Do this for 3 corners (a wall, then the next wall)",
+            "🏠  The 4th corner and ceiling height are filled in for you",
+            "✅  Tap Save. L-shaped room? Keep adding corners instead",
         )
         for (t in tips) {
             card.addView(TextView(this).apply {
@@ -509,7 +506,7 @@ class ScanActivity : Activity(), GLSurfaceView.Renderer {
         updateButtons()
         updateInfo()
         if (::stepLabel.isInitialized) {
-            stepLabel.text = if (mode == Mode.FLOOR) "STEP 1 OF 2 · WALK & TAP EACH CORNER" else "STEP 2 OF 2 · CEILING HEIGHT"
+            stepLabel.text = if (mode == Mode.FLOOR) "TAP 3 CORNERS OF THE ROOM" else "STEP 2 OF 2 · CEILING HEIGHT"
         }
     }
 
@@ -518,7 +515,7 @@ class ScanActivity : Activity(), GLSurfaceView.Renderer {
         if (mode == Mode.FLOOR) {
             btnA.text = "Undo"; btnA.isEnabled = n > 0
             btnB.text = "Add corner"; btnB.isEnabled = true
-            btnC.text = "Next ▸"; btnC.isEnabled = n >= 3
+            btnC.text = "Save ✓"; btnC.isEnabled = n >= 3
         } else {
             btnA.text = "◂ Back"; btnA.isEnabled = true
             btnB.text = if (ceilingHeight == null) "Measure ceiling" else "Save scan"; btnB.isEnabled = true
@@ -530,8 +527,8 @@ class ScanActivity : Activity(), GLSurfaceView.Renderer {
     private fun updateInfo() {
         val n = corners.size
         info.text = if (mode == Mode.FLOOR) {
-            if (n < 3) "Corners: $n  (at least 3 needed, add them walking around the room in one direction)"
-            else "Corners: $n   Area: ${fmt(polyArea(corners.map { doubleArrayOf(it[0].toDouble(), it[2].toDouble()) }).toFloat())} m²"
+            if (n < 3) "Corners: $n  (tap 3 corners in a row, e.g. one wall then the next. The 4th is added automatically)"
+            else "Corners: $n   Tap Save when done.   Area: ${fmt(polyArea(corners.map { doubleArrayOf(it[0].toDouble(), it[2].toDouble()) }).toFloat())} m²"
         } else {
             val hh = ceilingHeight
             "Height: " + (if (hh == null) "—" else fmt(hh) + " m") +
@@ -565,7 +562,21 @@ class ScanActivity : Activity(), GLSurfaceView.Renderer {
 
     private fun save() {
         if (corners.size < 3 || ceilingHeight == null) return
+        val a0 = polyArea(corners.map { doubleArrayOf(it[0].toDouble(), it[2].toDouble()) }).toFloat()
+        val rectArea = if (corners.size == 3) {
+            val a = corners[0]; val b = corners[1]; val c = corners[2]
+            Math.abs((b[0] - a[0]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[0] - a[0]))
+        } else a0
+        if (rectArea < 3f) {
+            toast("Room looks too small (${fmt(rectArea)} m²). Use Undo and tap the real corners of the room")
+            return
+        }
         try {
+            if (corners.size == 3) {
+                // rectangle shortcut: 4th corner = c0 + c2 - c1
+                val a = corners[0]; val b = corners[1]; val c = corners[2]
+                corners.add(floatArrayOf(a[0] + c[0] - b[0], b[1], a[2] + c[2] - b[2]))
+            }
             toast("Scan complete ✓ Building your 3D model…")
             setResult(RESULT_OK, Intent().putExtra(EXTRA_JSON, buildResult()))
             finish()

@@ -8,6 +8,7 @@ import '../notifications.dart';
 import '../report_pdf.dart';
 import 'assets_screen.dart';
 import 'auth_screen.dart';
+import 'profile_page.dart';
 import 'dashboard_screen.dart';
 import 'maintenance_screen.dart';
 import 'notifications_screen.dart';
@@ -53,7 +54,7 @@ class _HomeShellState extends State<HomeShell> {
       const AssetsScreen(),
       const ScanScreen(embedded: true),
       const VaultScreen(),
-      const ProfileScreen(),
+      const ProfilePage(),
     ];
     return PopScope(
       // Home tab par back = app band; baaki tabs par back = Home tab par wapas.

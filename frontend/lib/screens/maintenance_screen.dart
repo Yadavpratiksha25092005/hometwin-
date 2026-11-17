@@ -270,6 +270,18 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
     );
   }
 
+  /// Runs a task action and always tells the user what happened (success or the error).
+  Future<void> _runAction(Future<void> Function() job, String okMsg) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await job();
+      messenger.showSnackBar(SnackBar(content: Text(okMsg)));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))));
+    }
+    if (mounted) _reload();
+  }
+
   void _taskActions(Map<String, dynamic> t) {
     showModalBottomSheet(
       context: context,
@@ -280,24 +292,24 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
           ListTile(
             leading: const Icon(Icons.check_circle_outline, color: _green),
             title: const Text('Mark as done'),
-            onTap: () async {
+            onTap: () {
               Navigator.pop(context);
-              await Api.create('repairs', {
-                'asset_id': t['asset_id'],
-                'title': t['title'],
-                'repair_date': DateFormat('yyyy-MM-dd').format(_today),
-              });
-              await Api.remove('tasks', t['id']);
-              _reload();
+              _runAction(() async {
+                await Api.create('repairs', {
+                  'asset_id': t['asset_id'],
+                  'title': t['title'],
+                  'repair_date': DateFormat('yyyy-MM-dd').format(_today),
+                });
+                await Api.remove('tasks', t['id']);
+              }, 'Marked as done');
             },
           ),
           ListTile(
             leading: const Icon(Icons.delete_outline, color: Colors.red),
             title: const Text('Delete task'),
-            onTap: () async {
+            onTap: () {
               Navigator.pop(context);
-              await Api.remove('tasks', t['id']);
-              _reload();
+              _runAction(() => Api.remove('tasks', t['id']), 'Task deleted');
             },
           ),
         ]),
