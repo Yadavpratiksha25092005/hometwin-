@@ -5,6 +5,7 @@ import '../main.dart';
 import '../widgets/common.dart';
 import '../widgets/resource_screen.dart';
 import 'asset_detail_screen.dart';
+import '../widgets/add_asset_sheet.dart';
 
 const assetFields = [
   FieldDef('name', 'Device name (e.g. Fridge, AC, TV, Washing Machine)'), FieldDef('room', 'Room (Kitchen / Living Room ...)'),
@@ -31,14 +32,10 @@ class _AssetsScreenState extends State<AssetsScreen> {
         _future = _load();
       });
 
-  Future<void> _add() async {
-    final ok = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => const AddForm(title: 'Asset', path: 'assets', fields: assetFields),
-    );
-    if (ok == true) _reload();
-  }
+   Future<void> _add() async {
+  final ok = await AddAssetSheet.show(context);
+  if (ok == true) _reload();
+}
 
   Future<void> _seed() async {
     await Api.seedDemo();

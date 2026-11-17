@@ -358,11 +358,11 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
 
   /// (icon, label, colour, action). The first four are shown on the home screen, all of them under "See All".
   List<(IconData, String, Color, VoidCallback)> get _actions => [
-        (Icons.add_rounded, 'Add Asset', kBlue, () => widget.goTab(1)),
         (Icons.qr_code_scanner_rounded, 'Scan Home', const Color(0xFF6B4FD8), () => widget.goTab(2)),
         (Icons.description_rounded, 'Documents', const Color(0xFF1B9E55), () => widget.goTab(3)),
         (Icons.build_rounded, 'Maintenance', const Color(0xFFE0457B), () => widget.onMaintenance(0)),
         (Icons.weekend_outlined, 'Room Designer', const Color(0xFFF08A24), widget.onAr),
+        (Icons.add_rounded, 'Add Asset', kBlue, () => widget.goTab(1)),
         (Icons.notifications_none_rounded, 'Notifications', const Color(0xFF2563EB), () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen()))),
       ];
 

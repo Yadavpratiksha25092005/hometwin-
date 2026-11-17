@@ -39,7 +39,8 @@ class _VaultScreenState extends State<VaultScreen> {
     final ok = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
       builder: (_) => const _AddDocSheet(),
     );
     if (ok == true) _reload();
@@ -324,6 +325,7 @@ class _AddDocSheet extends StatefulWidget {
 }
 
 class _AddDocSheetState extends State<_AddDocSheet> {
+  static const _soft = Color(0xFF6B7690);
   final _title = TextEditingController();
   String _cat = 'Invoice';
   int? _asset;
@@ -337,7 +339,15 @@ class _AddDocSheetState extends State<_AddDocSheet> {
     Api.list('assets').then((a) => mounted ? setState(() => _assets = a) : null);
   }
 
+  @override
+  void dispose() {
+    _title.dispose();
+    super.dispose();
+  }
+
   void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+
+  bool get _isImage => _name != null && RegExp(r'\.(png|jpe?g|webp|gif|heic)$', caseSensitive: false).hasMatch(_name!);
 
   Future<void> _pick() async {
     final f = await FilePicker.pickFile();
@@ -381,50 +391,189 @@ class _AddDocSheetState extends State<_AddDocSheet> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.fromLTRB(16, 18, 16, MediaQuery.of(context).viewInsets.bottom + 16),
-        child: SingleChildScrollView(
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            const Text('Add Document', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: kNavy)),
-            const SizedBox(height: 14),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-              onPressed: _pick,
-              icon: Icon(_name == null ? Icons.attach_file_rounded : Icons.check_circle_rounded, color: _name == null ? kBlue : const Color(0xFF1B9E55)),
-              label: Text(_name ?? 'Choose file (PDF / photo)', maxLines: 1, overflow: TextOverflow.ellipsis),
+  InputDecoration _dec(String? hint, IconData icon) => InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(color: _soft, fontSize: 16),
+        prefixIcon: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: const BoxDecoration(color: kLilac, shape: BoxShape.circle),
+            child: Icon(icon, color: kBlue, size: 22),
+          ),
+        ),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 8),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: Color(0xFFDCD2FA))),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: Color(0xFFDCD2FA))),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: const BorderSide(color: kBlue, width: 1.4)),
+      );
+
+  Widget _circle(double size, double alpha) =>
+      Container(width: size, height: size, decoration: BoxDecoration(shape: BoxShape.circle, color: kLavender.withValues(alpha: alpha)));
+
+  Widget _header() => Row(children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.7),
+            borderRadius: BorderRadius.circular(26),
+            boxShadow: [BoxShadow(color: kBlue.withValues(alpha: 0.15), blurRadius: 18, offset: const Offset(0, 8))],
+          ),
+          child: Container(
+            width: 58,
+            height: 58,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF8B5CF6), Color(0xFF4C1D95)]),
             ),
-            const SizedBox(height: 12),
-            TextField(controller: _title, decoration: const InputDecoration(labelText: 'Title', border: OutlineInputBorder())),
-            const SizedBox(height: 12),
-            const Text('Category', style: TextStyle(fontWeight: FontWeight.w700, color: kNavy)),
-            const SizedBox(height: 6),
-            Wrap(spacing: 8, runSpacing: 8, children: [
-              for (final c in _cats)
-                ChoiceChip(
-                  label: Text(c),
-                  selected: _cat == c,
-                  onSelected: (_) => setState(() => _cat = c),
-                ),
-            ]),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<int>(
-              decoration: const InputDecoration(labelText: 'Link to asset (optional)', border: OutlineInputBorder()),
-              items: [for (final a in _assets) DropdownMenuItem(value: a['id'] as int, child: Text('${a['name']}'))],
-              onChanged: (v) => _asset = v,
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 50,
-              child: FilledButton(
-                style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-                onPressed: _busy ? null : _save,
-                child: _busy
-                    ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                    : const Text('Save to Vault', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-              ),
-            ),
+            child: const Icon(Icons.folder_special_rounded, color: Colors.white, size: 32),
+          ),
+        ),
+        const SizedBox(width: 14),
+        const Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Add Document', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: kNavy, letterSpacing: -0.4)),
+            SizedBox(height: 2),
+            Text('Keep it safe in your vault', style: TextStyle(fontSize: 14.5, color: _soft)),
           ]),
         ),
-      );
+        InkWell(
+          customBorder: const CircleBorder(),
+          onTap: () => Navigator.pop(context),
+          child: Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: kBlue.withValues(alpha: 0.12), blurRadius: 10, offset: const Offset(0, 4))]),
+            child: const Icon(Icons.close_rounded, color: kNavy),
+          ),
+        ),
+      ]);
+
+  Widget _chip(String c) {
+    final sel = _cat == c;
+    final (icon, color) = _meta(c);
+    return InkWell(
+      borderRadius: BorderRadius.circular(24),
+      onTap: () => setState(() => _cat = c),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: sel ? kBlue : Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: sel ? kBlue : const Color(0xFFDCD2FA)),
+          boxShadow: sel ? [BoxShadow(color: kBlue.withValues(alpha: 0.3), blurRadius: 10, offset: const Offset(0, 4))] : null,
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 18, color: sel ? Colors.white : color),
+          const SizedBox(width: 6),
+          Text(c, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: sel ? Colors.white : kNavy)),
+        ]),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final kb = MediaQuery.of(context).viewInsets.bottom;
+    final bottomSafe = MediaQuery.of(context).padding.bottom;
+    return Padding(
+      padding: const EdgeInsets.only(top: 24),
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: const BoxDecoration(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFFF1ECFF), Color(0xFFFBFAFF)]),
+        ),
+        child: Stack(children: [
+          Positioned(top: -50, right: -40, child: _circle(170, 0.16)),
+          Positioned(top: 40, right: 60, child: _circle(70, 0.08)),
+          Padding(
+            padding: EdgeInsets.only(bottom: kb),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(margin: const EdgeInsets.only(top: 10, bottom: 14), width: 48, height: 5, decoration: BoxDecoration(color: const Color(0xFFB9AEDC), borderRadius: BorderRadius.circular(3))),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(18, 0, 18, 18 + bottomSafe),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    _header(),
+                    const SizedBox(height: 22),
+                    if (_isImage && _path != null) ...[
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: Image.file(File(_path!), height: 130, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+                    SizedBox(
+                      height: 56,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          backgroundColor: const Color(0xFFF3EEFF),
+                          foregroundColor: kBlue,
+                          side: const BorderSide(color: Color(0xFFB9A4F5), width: 1.2),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                        ),
+                        onPressed: _busy ? null : _pick,
+                        icon: Icon(_name == null ? Icons.attach_file_rounded : Icons.check_circle_rounded, color: _name == null ? kBlue : const Color(0xFF1B9E55), size: 26),
+                        label: Text(_name ?? 'Choose file (PDF / photo)', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(controller: _title, textCapitalization: TextCapitalization.sentences, decoration: _dec('Title', Icons.edit_note_rounded)),
+                    const SizedBox(height: 22),
+                    Row(children: [
+                      Container(width: 4, height: 20, decoration: BoxDecoration(color: kBlue, borderRadius: BorderRadius.circular(3))),
+                      const SizedBox(width: 10),
+                      const Text('Category', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: kNavy)),
+                    ]),
+                    const SizedBox(height: 12),
+                    Wrap(spacing: 10, runSpacing: 10, children: [for (final c in _cats) _chip(c)]),
+                    const SizedBox(height: 22),
+                    DropdownButtonFormField<int>(
+                      isExpanded: true,
+                      borderRadius: BorderRadius.circular(20),
+                      icon: const Icon(Icons.keyboard_arrow_down_rounded, color: kBlue, size: 28),
+                      hint: const Text('Link to asset (optional)', style: TextStyle(color: _soft, fontSize: 16)),
+                      decoration: _dec(null, Icons.link_rounded),
+                      items: [for (final a in _assets) DropdownMenuItem(value: a['id'] as int, child: Text('${a['name']}', maxLines: 1, overflow: TextOverflow.ellipsis))],
+                      onChanged: (v) => _asset = v,
+                    ),
+                    const SizedBox(height: 22),
+                    Container(
+                      height: 58,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(30),
+                        gradient: const LinearGradient(colors: [Color(0xFF7C4DF0), Color(0xFF4C1D95)]),
+                        boxShadow: [BoxShadow(color: kBlue.withValues(alpha: 0.35), blurRadius: 18, offset: const Offset(0, 8))],
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(30),
+                          onTap: _busy ? null : _save,
+                          child: Center(
+                            child: _busy
+                                ? const SizedBox(width: 26, height: 26, child: CircularProgressIndicator(strokeWidth: 2.6, color: Colors.white))
+                                : const Row(mainAxisSize: MainAxisSize.min, children: [
+                                    Icon(Icons.lock_rounded, color: Colors.white, size: 24),
+                                    SizedBox(width: 10),
+                                    Text('Save to Vault', style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w700)),
+                                  ]),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
 }

@@ -153,19 +153,6 @@ class Api {
     return synced;
   }
 
-  /// Demo mode: email se seedha naya password set hota hai.
-  /// On a real backend this should be done with an email/SMS OTP.
-  static Future<void> resetPassword(String email, String newPass) async {
-    if (remote) throw Exception('Password reset is not available in server mode yet');
-    final p = await _p;
-    final key = email.trim().toLowerCase();
-    final users = _users(p);
-    if (!users.containsKey(key)) throw Exception('No account found with this email');
-    if (newPass.length < 6) throw Exception('Password must be at least 6 characters');
-    users[key] = {...Map<String, dynamic>.from(users[key]), 'pass': newPass};
-    await p.setString('users', jsonEncode(users));
-  }
-
   // ---------- server (Go backend) ----------
   static String get _down =>
       'Could not connect to the server ($_base). Is the backend running? Are your phone and computer on the same Wi-Fi?';
