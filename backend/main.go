@@ -63,6 +63,7 @@ func main() {
 	mux.HandleFunc("POST /api/auth/register", a.register)
 	mux.HandleFunc("POST /api/auth/login", a.login)
 	mux.HandleFunc("POST /api/auth/google", a.googleLogin)
+	mux.HandleFunc("POST /api/auth/reset-password", a.resetPassword)
 	mux.Handle("GET /files/", http.StripPrefix("/files/", http.FileServer(http.Dir("uploads"))))
 	mux.HandleFunc("POST /api/upload", a.protect(a.upload))
 	mux.HandleFunc("GET /api/reminders", a.protect(a.reminders))

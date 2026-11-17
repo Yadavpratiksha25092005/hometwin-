@@ -183,42 +183,18 @@ class _ScanScreenState extends State<ScanScreen> {
     final lC = TextEditingController(), wC = TextEditingController(), hC = TextEditingController(text: '2.7');
     double? p(TextEditingController c) => double.tryParse(c.text.trim().replaceAll(',', '.'));
     double? l0, w0, h0;
-    const types = <(String, double, double)>[
-      ('Bedroom', 4.0, 3.5),
-      ('Living room', 5.5, 4.2),
-      ('Kitchen', 3.6, 3.0),
-      ('Study', 3.2, 3.0),
-      ('Bathroom', 2.6, 2.4),
-    ];
-    var typeIdx = 0; // furniture follows this type, not the typed name
     while (true) {
       final ok = await showDialog<bool>(
         context: context,
         builder: (_) => AlertDialog(
           title: const Text('Enter room size'),
-          content: StatefulBuilder(
-            builder: (ctx, setS) => SingleChildScrollView(
-              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Wrap(spacing: 8, runSpacing: 4, children: [
-                  for (var k = 0; k < types.length; k++)
-                    ChoiceChip(
-                      label: Text(types[k].$1),
-                      selected: typeIdx == k,
-                      onSelected: (_) => setS(() {
-                        typeIdx = k;
-                        nameC.text = types[k].$1;
-                        lC.text = '${types[k].$2}';
-                        wC.text = '${types[k].$3}';
-                      }),
-                    ),
-                ]),
-                const SizedBox(height: 12),
-                TextField(controller: nameC, decoration: const InputDecoration(labelText: 'Room name', border: OutlineInputBorder())),
-                _numField(lC, 'Length (meters), e.g. 4.5'),
-                _numField(wC, 'Width (meters), e.g. 3.5'),
-                _numField(hC, 'Height (meters), e.g. 2.7'),
-              ]),
-            ),
+          content: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(controller: nameC, decoration: const InputDecoration(labelText: 'Room name', border: OutlineInputBorder())),
+              _numField(lC, 'Length (meters), e.g. 4.5'),
+              _numField(wC, 'Width (meters), e.g. 3.5'),
+              _numField(hC, 'Height (meters), e.g. 2.7'),
+            ]),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
@@ -276,7 +252,7 @@ class _ScanScreenState extends State<ScanScreen> {
       };
       final room = RoomData.fromJson(meta);
       final dir = await _scanDir();
-      final f = File('${dir.path}/room_${DateTime.now().millisecondsSinceEpoch}.glb')..writeAsBytesSync(buildRoomGlb(room, roomName: types[typeIdx].$1));
+      final f = File('${dir.path}/room_${DateTime.now().millisecondsSinceEpoch}.glb')..writeAsBytesSync(buildRoomGlb(room, roomName: name));
       final url = await Api.upload(f.path);
       await Api.create('scans', {
         'name': name,
@@ -294,43 +270,13 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
-  /// Room type chooser for the photo/video scan. Returns (label, roomName used for auto-furniture, width, depth).
-  Future<({String label, double w, double d})?> _askRoomType(String guessFrom) async {
-    const types = <({String label, double w, double d, List<String> keys})>[
-      (label: 'Bedroom', w: 4.0, d: 3.5, keys: ['bed', 'sleep']),
-      (label: 'Living room', w: 5.5, d: 4.2, keys: ['living', 'hall', 'lounge', 'sofa']),
-      (label: 'Kitchen', w: 3.6, d: 3.0, keys: ['kitchen', 'cook']),
-      (label: 'Study', w: 3.2, d: 3.0, keys: ['study', 'office', 'desk']),
-      (label: 'Bathroom', w: 2.6, d: 2.4, keys: ['bath', 'toilet', 'washroom']),
-    ];
-    final g = guessFrom.toLowerCase();
-    var sel = 0;
-    for (var i = 0; i < types.length; i++) {
-      if (types[i].keys.any(g.contains)) sel = i;
-    }
-    final i = await showDialog<int>(
-      context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setS) => AlertDialog(
-          title: const Text('Which room is this?'),
-          content: Wrap(spacing: 8, runSpacing: 4, children: [
-            for (var k = 0; k < types.length; k++)
-              ChoiceChip(label: Text(types[k].label), selected: sel == k, onSelected: (_) => setS(() => sel = k)),
-          ]),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, sel), child: const Text('Next')),
-          ],
-        ),
-      ),
-    );
-    if (i == null) return null;
-    return (label: types[i].label, w: types[i].w, d: types[i].d);
-  }
-
-  /// Photo or video -> dummy 3D room of the chosen type (bedroom / living room / kitchen ...).
-  /// No server / AI credits needed: the room is built on the phone with matching furniture.
+  /// Photo or video -> real 3D (.glb). Server (Meshy) builds it; for video the server takes one frame.
   Future<void> _videoScan() async {
+    if (!Api.remote) {
+      _snack('Real 3D needs server mode (set API_URL in config.dart)');
+      return;
+    }
+    setState(() => _busy = true);
     final prog = ValueNotifier<int>(0);
     var dialogOpen = false;
     try {
@@ -367,47 +313,35 @@ class _ScanScreenState extends State<ScanScreen> {
         return;
       }
       if (!mounted) return;
-      final type = await _askRoomType(pickedName);
-      if (type == null || !mounted) return;
-      final name = await _askName(type.label, pickedName);
+      final name = await _askName(pickedName.replaceAll(RegExp(r'\.[^.]+$'), ''), pickedName);
       if (name == null || !mounted) return;
-      setState(() => _busy = true);
       showDialog(context: context, barrierDismissible: false, builder: (_) => _Progress3D(prog));
       dialogOpen = true;
-      for (var i = 1; i <= 10; i++) {
-        await Future.delayed(const Duration(milliseconds: 250));
-        prog.value = i * 10;
+      final job = await Api.furnitureStart(path);
+      if (job == null) throw Exception('The 3D service is not available on the server');
+      String? modelUrl;
+      for (var i = 0; i < 150 && modelUrl == null; i++) {
+        await Future.delayed(const Duration(seconds: 4));
+        try {
+          final s = await Api.furnitureStatus(job);
+          final st = '${s['status']}';
+          if (st == 'ready') {
+            modelUrl = '${s['model_url']}';
+          } else if (st == 'failed') {
+            throw Exception('${s['error'] ?? 'The 3D model could not be made. Try a clearer photo or video.'}');
+          } else {
+            prog.value = (s['progress'] as num?)?.toInt() ?? prog.value;
+          }
+        } on SocketException {
+          // network hiccup: try again
+        }
       }
-      final l = type.w, w = type.d, h = 2.7;
-      final meta = {
-        'version': 1,
-        'unit': 'm',
-        'corners': [
-          [0.0, 0.0],
-          [l, 0.0],
-          [l, w],
-          [0.0, w]
-        ],
-        'height': h,
-        'area_m2': l * w,
-        'perimeter_m': 2 * (l + w),
-        'width_m': l,
-        'depth_m': w,
-        'walls': [l, w, l, w],
-        'demo': true,
-        'room_type': type.label,
-      };
-      final room = RoomData.fromJson(meta);
-      final dir = await _scanDir();
-      // room TYPE decides the furniture (not the user's custom name), so it always matches
-      final f = File('${dir.path}/room_${DateTime.now().millisecondsSinceEpoch}.glb')..writeAsBytesSync(buildRoomGlb(room, roomName: type.label));
-      final url = await Api.upload(f.path);
+      if (modelUrl == null) throw Exception('This is taking too long. Please try again later');
       await Api.create('scans', {
         'name': name,
-        'notes': '${type.label} • ${room.summary}',
-        'model_url': url,
-        'source': 'demo_video',
-        'meta': meta,
+        'notes': 'AI 3D from ${pickedName}',
+        'model_url': modelUrl,
+        'source': 'photo_3d',
       });
       if (dialogOpen && mounted) {
         Navigator.pop(context);
@@ -416,7 +350,7 @@ class _ScanScreenState extends State<ScanScreen> {
       _reload();
       _snack('"$name" ready');
     } catch (e) {
-      _snack('Could not create 3D room: $e');
+      _snack('3D scan failed: $e');
     } finally {
       if (dialogOpen && mounted) Navigator.pop(context);
       prog.dispose();
@@ -468,13 +402,13 @@ class _ScanScreenState extends State<ScanScreen> {
             const Text('Digitize your home', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: kNavy)),
             const SizedBox(height: 4),
             const Text(
-              'Scan your room with AR and the app will build a 3D model — move your phone around and tap each corner.',
+              'Record a video or take photos of your room and the app will build a 3D model of it.',
               style: TextStyle(fontSize: 12.5, color: Color(0xFF5A6785)),
             ),
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
-              child: FilledButton.icon(onPressed: _busy ? null : _scanRoom, icon: const Icon(Icons.view_in_ar), label: const Text('AR Scan')),
+              child: FilledButton.icon(onPressed: _busy ? null : _videoScan, icon: const Icon(Icons.videocam), label: const Text('3D from photo / video')),
             ),
             const SizedBox(height: 8),
             SizedBox(
@@ -495,9 +429,9 @@ class _ScanScreenState extends State<ScanScreen> {
                   Row(children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _busy ? null : _videoScan,
-                        icon: const Icon(Icons.videocam),
-                        label: const Text('3D from photo / video'),
+                        onPressed: _busy ? null : _scanRoom,
+                        icon: const Icon(Icons.view_in_ar),
+                        label: const Text('AR Scan'),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -596,9 +530,7 @@ class ScanDetailScreen extends StatelessWidget {
   String get _url => _isRemote ? Api.fileUrl(_raw) : _raw;
   bool get _hasFile => _raw.isNotEmpty && !_isRemote && File(_raw).existsSync();
 
-  Widget _viewer() => _modelViewer();
-
-  Widget _modelViewer() {
+  Widget _viewer() {
     if (_raw.startsWith('asset:')) {
       return ModelViewer(src: _raw.substring(6), alt: '${scan['name']}', ar: false, autoRotate: false, cameraControls: true, cameraOrbit: '30deg 58deg auto', backgroundColor: const Color(0xFFEFF3FA), shadowIntensity: 1, shadowSoftness: 1, exposure: 1.05, environmentImage: 'neutral');
     }

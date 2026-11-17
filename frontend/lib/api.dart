@@ -102,6 +102,21 @@ class Api {
     return _remoteAuth('/api/auth/google', {'idToken': idToken});
   }
 
+  /// Forgot password: sets a new password after the OTP step (demo OTP for now).
+  static Future<void> resetPassword(String email, String otp, String newPass) async {
+    if (newPass.length < 6) throw Exception('Password must be at least 6 characters');
+    if (remote) {
+      await _req('POST', '/api/auth/reset-password', body: {'email': email.trim(), 'otp': otp, 'password': newPass}, auth: false);
+      return;
+    }
+    final p = await _p;
+    final key = email.trim().toLowerCase();
+    final users = _users(p);
+    if (!users.containsKey(key)) throw Exception('No account found with this email');
+    (users[key] as Map)['pass'] = newPass;
+    await p.setString('users', jsonEncode(users));
+  }
+
   /// Changes the display name. Returns true when it was saved on the server (or in demo mode),
   /// false when the server is too old to know this feature: the name is then changed on this phone only.
   static Future<bool> updateName(String name) async {
