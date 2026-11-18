@@ -250,6 +250,33 @@ class Api {
     return f;
   }
 
+  /// Furniture hosted on the server (uploads/furniture/<Category>/<name>.png). Empty in demo mode.
+  static Future<List<dynamic>> furnitureCatalog() async {
+    if (!remote) return [];
+    final d = await _req('GET', '/api/furniture', auth: false);
+    return d is List ? List<dynamic>.from(d) : [];
+  }
+
+  /// Downloads a server image once and keeps it on the phone (kept between app restarts).
+  static Future<File?> cachedFile(String p) async {
+    if (!isServerPath(p)) {
+      final f = File(p);
+      return f.existsSync() ? f : null;
+    }
+    final dir = Directory('${(await getApplicationSupportDirectory()).path}/furniture_cache');
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    final f = File('${dir.path}/${p.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_')}');
+    if (f.existsSync() && f.lengthSync() > 0) return f;
+    try {
+      final r = await http.get(Uri.parse(fileUrl(p))).timeout(const Duration(minutes: 1));
+      if (r.statusCode != 200) return null;
+      await f.writeAsBytes(r.bodyBytes);
+      return f;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ---------- CRUD (server or local) ----------
   static Future<List<dynamic>> list(String res) async {
     if (remote) return List<dynamic>.from(await _req('GET', '/api/$res') as List);

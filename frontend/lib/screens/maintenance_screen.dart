@@ -42,7 +42,22 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
   }
 
   String _sub(Map<String, dynamic>? a) =>
-      a == null ? '' : [a['brand'], a['model']].where((e) => e != null && '$e'.isNotEmpty).join(' • ');
+      a == null ? 'Deleted asset' : [a['brand'], a['model']].where((e) => e != null && '$e'.isNotEmpty).join(' • ');
+
+  /// Asks before removing a record (the delete buttons used to remove it instantly).
+  Future<bool> _confirmRemove(String what) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Delete $what?'),
+          content: const Text('This cannot be undone.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
+          ],
+        ),
+      ) ??
+      false;
 
   Future<void> _add() async {
     final today = DateFormat('yyyy-MM-dd').format(_today);
@@ -262,7 +277,7 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Text('Next Reminder', style: TextStyle(fontWeight: FontWeight.w800, color: _green)),
-            Text('${a?['name'] ?? 'Task'} ${('${t['title']}').toLowerCase()} $when', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: kNavy)),
+            Text('${a?['name'] ?? 'Task'}: ${t['title']} $when', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, color: kNavy)),
           ]),
         ),
         const CircleAvatar(radius: 14, backgroundColor: Colors.white, child: Icon(Icons.arrow_forward_rounded, size: 16, color: _green)),
@@ -277,7 +292,7 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
       await job();
       messenger.showSnackBar(SnackBar(content: Text(okMsg)));
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))));
+      messenger.showSnackBar(SnackBar(content: Text(friendlyError(e))));
     }
     if (mounted) _reload();
   }
@@ -354,6 +369,7 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
           constraints: const BoxConstraints(minWidth: 32),
           icon: const Icon(Icons.close_rounded, size: 18, color: _grey),
           onPressed: () async {
+            if (!await _confirmRemove('this record')) return;
             await Api.remove('repairs', r['id']);
             _reload();
           },
@@ -403,6 +419,7 @@ class _MaintenanceScreenState extends State<MaintenanceScreen> {
           constraints: const BoxConstraints(minWidth: 32),
           icon: const Icon(Icons.close_rounded, size: 18, color: _grey),
           onPressed: () async {
+            if (!await _confirmRemove('this warranty')) return;
             await Api.remove('warranties', w['id']);
             _reload();
           },

@@ -1,7 +1,9 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../api.dart';
+import 'common.dart';
 
 enum FType { text, number, date, asset, file, multiline }
 
@@ -119,8 +121,9 @@ class _AddFormState extends State<AddForm> {
   }
 
   Future<void> _save() async {
-    if (widget.path == 'assets' && (_ctl['name']?.text.trim().isEmpty ?? true)) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Device name is required')));
+    final problem = _validate();
+    if (problem != null) {
+      showToast(context, problem);
       return;
     }
     setState(() => _busy = true);
@@ -134,10 +137,24 @@ class _AddFormState extends State<AddForm> {
       await Api.create(widget.path, _data);
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+      if (mounted) showToast(context, friendlyError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Returns the first thing wrong with the form, or null when it can be saved.
+  String? _validate() {
+    for (final f in widget.fields) {
+      final text = _ctl[f.key]?.text.trim() ?? '';
+      if ((f.key == 'title' || f.key == 'name') && text.isEmpty) return '${f.label} is required';
+      if (f.type == FType.asset && _data[f.key] == null) return 'Please choose an asset';
+      if (f.type == FType.number && text.isNotEmpty && num.tryParse(text) == null) return '${f.label} must be a number';
+    }
+    final start = DateTime.tryParse('${_data['start_date'] ?? ''}');
+    final end = DateTime.tryParse('${_data['expiry_date'] ?? ''}');
+    if (start != null && end != null && end.isBefore(start)) return 'Expiry date must be after the start date';
+    return null;
   }
 
   Widget _field(FieldDef f) {
@@ -175,7 +192,7 @@ class _AddFormState extends State<AddForm> {
               _data[f.key] = await Api.upload(p);
               _ctl[f.key]!.text = file!.name;
             } catch (e) {
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+              if (mounted) showToast(context, friendlyError(e));
             }
             if (mounted) setState(() => _busy = false);
           },
@@ -183,7 +200,8 @@ class _AddFormState extends State<AddForm> {
       default:
         return TextField(
           controller: _ctl[f.key],
-          keyboardType: f.type == FType.number ? TextInputType.number : TextInputType.text,
+          keyboardType: f.type == FType.number ? const TextInputType.numberWithOptions(decimal: true) : TextInputType.text,
+          inputFormatters: f.type == FType.number ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))] : null,
           maxLines: f.type == FType.multiline ? 3 : 1,
           decoration: InputDecoration(labelText: f.label, border: const OutlineInputBorder()),
         );

@@ -178,7 +178,7 @@ class _VaultScreenState extends State<VaultScreen> {
             const SizedBox(height: 14),
             Text(none ? 'Vault is empty' : 'No matching documents', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kNavy)),
             const SizedBox(height: 4),
-            const Text('Tap the upload button to add a document', style: TextStyle(color: Color(0xFF5A6785))),
+            Text(none ? 'Tap the upload button to add a document' : 'Try a different search or category', style: const TextStyle(color: Color(0xFF5A6785))),
           ]),
         ),
       );
@@ -345,7 +345,7 @@ class _AddDocSheetState extends State<_AddDocSheet> {
     super.dispose();
   }
 
-  void _snack(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  void _snack(String m) => showToast(context, m);
 
   bool get _isImage => _name != null && RegExp(r'\.(png|jpe?g|webp|gif|heic)$', caseSensitive: false).hasMatch(_name!);
 
@@ -385,7 +385,7 @@ class _AddDocSheetState extends State<_AddDocSheet> {
       });
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
-      if (mounted) _snack('$e');
+      if (mounted) _snack(friendlyError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

@@ -4,8 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgconn"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -56,7 +59,7 @@ func (res resource) list(a *App) func(http.ResponseWriter, *http.Request, int64)
 		var out string
 		q := fmt.Sprintf(`SELECT COALESCE(json_agg(t ORDER BY t.created_at DESC),'[]')::text FROM (SELECT * FROM %s WHERE user_id=$1) t`, res.table)
 		if err := a.db.QueryRow(r.Context(), q, uid).Scan(&out); err != nil {
-			writeErr(w, 500, err.Error())
+			writeErr(w, 500, dbMessage(err))
 			return
 		}
 		raw(w, 200, out)
@@ -92,7 +95,7 @@ func (res resource) create(a *App) func(http.ResponseWriter, *http.Request, int6
 			res.table, strings.Join(cols, ","), strings.Join(phs, ","))
 		var out string
 		if err := a.db.QueryRow(r.Context(), q, args...).Scan(&out); err != nil {
-			writeErr(w, 400, err.Error())
+			writeErr(w, 400, dbMessage(err))
 			return
 		}
 		raw(w, 201, out)
@@ -167,7 +170,7 @@ func (a *App) reminders(w http.ResponseWriter, r *http.Request, uid int64) {
 	  WHERE w.user_id=$1 AND w.expiry_date BETWEEN CURRENT_DATE-7 AND CURRENT_DATE+30
 	  ORDER BY w.expiry_date) x`, uid).Scan(&out)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErr(w, 500, dbMessage(err))
 		return
 	}
 	raw(w, 200, out)
@@ -184,7 +187,7 @@ func (a *App) report(w http.ResponseWriter, r *http.Request, uid int64) {
 	 'tasks',(SELECT COALESCE(json_agg(t),'[]') FROM tasks t WHERE user_id=$1),
 	 'generated_at', now())::text`, uid).Scan(&out)
 	if err != nil {
-		writeErr(w, 500, err.Error())
+		writeErr(w, 500, dbMessage(err))
 		return
 	}
 	raw(w, 200, out)
@@ -198,4 +201,26 @@ func (a *App) deviceToken(w http.ResponseWriter, r *http.Request, uid int64) {
 		welcomeToken(a.db, uid, b.Token) // first time this phone registers (first login on it)
 	}
 	w.WriteHeader(204)
+}
+
+// dbMessage turns a database error into a short message that is safe to show to users.
+// The raw error text contains SQL internals (type names, SQLSTATE codes), so it is only logged.
+func dbMessage(err error) string {
+	log.Printf("db error: %v", err)
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) {
+		switch pe.Code {
+		case "22P02", "22003":
+			return "Please enter a valid number."
+		case "22007", "22008":
+			return "Please enter a valid date."
+		case "23502":
+			return "Please fill in all required fields."
+		case "23503":
+			return "The linked item no longer exists."
+		case "23505":
+			return "This item already exists."
+		}
+	}
+	return "Something went wrong. Please try again."
 }

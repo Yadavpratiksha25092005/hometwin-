@@ -1,8 +1,10 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../api.dart';
+import 'common.dart';
 import '../main.dart';
 
 /// New "Add Asset" bottom sheet (only used by the Assets screen; other forms still use AddForm).
@@ -47,7 +49,7 @@ class _AddAssetSheetState extends State<AddAssetSheet> {
   }
 
   void _snack(String m) {
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+    if (mounted) showToast(context, m);
   }
 
   InputDecoration _dec(String? hint, IconData icon, {Widget? suffix}) => InputDecoration(
@@ -90,7 +92,7 @@ class _AddAssetSheetState extends State<AddAssetSheet> {
       _photoName = file!.name;
       _photoPath = p;
     } catch (e) {
-      _snack('$e');
+      _snack(friendlyError(e));
     }
     if (mounted) setState(() => _busy = false);
   }
@@ -103,6 +105,8 @@ class _AddAssetSheetState extends State<AddAssetSheet> {
       problem = 'Please choose a room';
     } else if (_brand.text.trim().isEmpty) {
       problem = 'Brand is required';
+    } else if (_price.text.trim().isNotEmpty && num.tryParse(_price.text.trim()) == null) {
+      problem = 'Price must be a number';
     }
     if (problem != null) {
       _snack(problem);
@@ -123,7 +127,7 @@ class _AddAssetSheetState extends State<AddAssetSheet> {
       await Api.create('assets', data);
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
-      _snack('$e'.replaceFirst('Exception: ', ''));
+      _snack(friendlyError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -202,7 +206,7 @@ class _AddAssetSheetState extends State<AddAssetSheet> {
                       isExpanded: true,
                       borderRadius: BorderRadius.circular(20),
                       icon: const Icon(Icons.keyboard_arrow_down_rounded, color: kBlue, size: 28),
-                      hint: const Text('Room (Kitchen / Living Room ...) *', style: TextStyle(color: _soft, fontSize: 16)),
+                      hint: const Text('Room *', style: TextStyle(color: _soft, fontSize: 16)),
                       decoration: _dec(null, Icons.weekend_outlined),
                       items: [for (final r in _rooms) DropdownMenuItem(value: r, child: Text(r, style: const TextStyle(fontSize: 16, color: _ink)))],
                       onChanged: (v) => setState(() => _room = v),
@@ -221,7 +225,7 @@ class _AddAssetSheetState extends State<AddAssetSheet> {
                       decoration: _dec('Purchase date', Icons.calendar_month_outlined, suffix: const Padding(padding: EdgeInsets.only(right: 14), child: Icon(Icons.calendar_today_outlined, color: _ink))),
                     ),
                     const SizedBox(height: 14),
-                    TextField(controller: _price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: _dec('Price', Icons.currency_rupee_rounded)),
+                    TextField(controller: _price, keyboardType: const TextInputType.numberWithOptions(decimal: true), inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))], decoration: _dec('Price', Icons.currency_rupee_rounded)),
                     const SizedBox(height: 14),
                     if (_photoPath != null) ...[
                       ClipRRect(

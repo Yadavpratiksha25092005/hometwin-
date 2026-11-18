@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -10,7 +9,6 @@ import 'package:model_viewer_plus/model_viewer_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../api.dart';
-import '../config.dart';
 import '../main.dart';
 import '../scan/floor_plan.dart';
 import '../scan/room_model.dart';
@@ -42,7 +40,8 @@ class _ScanScreenState extends State<ScanScreen> {
 
   void _snack(String m) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+    final ok = RegExp(r'" (saved|imported|ready|created)').hasMatch(m);
+    showToast(context, m, error: !ok);
   }
 
   Future<void> _info(String title, String body) => showDialog(
@@ -166,6 +165,8 @@ class _ScanScreenState extends State<ScanScreen> {
         child: TextField(
           controller: c,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          // digits with at most one decimal point (",") and two decimals
+          inputFormatters: [TextInputFormatter.withFunction((o, n) => RegExp(r'^\d{0,2}([.,]\d{0,2})?$').hasMatch(n.text) ? n : o)],
           decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
         ),
       );
@@ -406,7 +407,7 @@ class _ScanScreenState extends State<ScanScreen> {
         'name': name,
         'notes': '${type.label} • ${room.summary}',
         'model_url': url,
-        'source': 'demo_video',
+        'source': ['.jpg', '.jpeg', '.png'].any(n.endsWith) ? 'demo_photo' : 'demo_video',
         'meta': meta,
       });
       if (dialogOpen && mounted) {
@@ -468,7 +469,7 @@ class _ScanScreenState extends State<ScanScreen> {
             const Text('Digitize your home', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: kNavy)),
             const SizedBox(height: 4),
             const Text(
-              'Pick a photo or video of your room and the app will build a 3D model of it.',
+              'Pick a photo or video, choose the room type, and the app creates a 3D room preview you can walk around.',
               style: TextStyle(fontSize: 12.5, color: Color(0xFF5A6785)),
             ),
             const SizedBox(height: 12),
@@ -534,7 +535,7 @@ class _ScanScreenState extends State<ScanScreen> {
                     );
                   }
                   final it = items[i - 1] as Map<String, dynamic>;
-                  final isRoom = ['arcore_room', 'manual_room', 'demo_video'].contains(it['source']);
+                  final isRoom = ['arcore_room', 'manual_room', 'demo_video', 'demo_photo'].contains(it['source']);
                   return Dismissible(
                     key: ValueKey(it['id']),
                     direction: DismissDirection.endToStart,
@@ -555,6 +556,7 @@ class _ScanScreenState extends State<ScanScreen> {
                         trailing: switch (it['source']) {
                           'manual_room' => StatusPill.green('Quick room'),
                           'demo_video' => StatusPill.blue('Video scan'),
+                          'demo_photo' => StatusPill.blue('Photo scan'),
                           'photo_3d' => StatusPill.blue('AI 3D'),
                           'arcore_room' => StatusPill.blue('AR scan'),
                           _ => StatusPill.grey('Imported'),

@@ -63,3 +63,51 @@ class StatusPill extends StatelessWidget {
         ]),
       );
 }
+/// Turns an error into text a person can read (no "Exception:" prefix, no database internals).
+String friendlyError(Object e) {
+  final s = '$e'.replaceFirst(RegExp(r'^Exception:\s*'), '').trim();
+  if (s.contains('SQLSTATE') || s.contains('ERROR:')) {
+    if (s.contains('22P02') || s.contains('numeric') || s.contains('integer')) return 'Please enter a valid number.';
+    if (s.contains('22007') || s.contains('22008') || s.contains('date')) return 'Please enter a valid date.';
+    if (s.contains('23502')) return 'Please fill in all required fields.';
+    return 'Something went wrong. Please try again.';
+  }
+  return s.isEmpty ? 'Something went wrong. Please try again.' : s;
+}
+
+/// Short message shown above everything, including an open bottom sheet.
+/// (A normal SnackBar is drawn by the screen *behind* the sheet, so people never see it.)
+void showToast(BuildContext context, String message, {bool error = true}) {
+  final overlay = Overlay.maybeOf(context, rootOverlay: true);
+  if (overlay == null) return;
+  late final OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (ctx) => Positioned(
+      left: 16,
+      right: 16,
+      top: MediaQuery.of(ctx).padding.top + 12,
+      child: IgnorePointer(
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: error ? const Color(0xFFB3261E) : const Color(0xFF1E8E3E),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: softShadow(0.25),
+            ),
+            child: Row(children: [
+              Icon(error ? Icons.error_outline : Icons.check_circle_outline, color: Colors.white),
+              const SizedBox(width: 10),
+              Expanded(child: Text(message, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500))),
+            ]),
+          ),
+        ),
+      ),
+    ),
+  );
+  overlay.insert(entry);
+  Future.delayed(const Duration(seconds: 3), () {
+    if (entry.mounted) entry.remove();
+  });
+}
